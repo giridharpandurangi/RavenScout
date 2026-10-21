@@ -214,11 +214,11 @@ namespace RavenScout
 
         private static void FindPlaces(ScoutTrip trip, float radius, List<Finding> findings)
         {
-            var rules = new List<(Finding.Kind kind, Dictionary<string, string> names)>();
-            if (Plugin.SpotDungeons.Value) rules.Add((Finding.Kind.Dungeon, ParseNames(Plugin.DungeonNames.Value)));
-            if (Plugin.SpotBosses.Value) rules.Add((Finding.Kind.Boss, ParseNames(Plugin.BossNames.Value)));
-            if (Plugin.SpotTraders.Value) rules.Add((Finding.Kind.Trader, ParseNames(Plugin.TraderNames.Value)));
-            if (Plugin.SpotOther.Value) rules.Add((Finding.Kind.Other, ParseNames(Plugin.OtherNames.Value)));
+            var rules = new List<NameRule>();
+            if (Plugin.SpotDungeons.Value) rules.Add(new NameRule(Finding.Kind.Dungeon, Plugin.DungeonNames.Value));
+            if (Plugin.SpotBosses.Value) rules.Add(new NameRule(Finding.Kind.Boss, Plugin.BossNames.Value));
+            if (Plugin.SpotTraders.Value) rules.Add(new NameRule(Finding.Kind.Trader, Plugin.TraderNames.Value));
+            if (Plugin.SpotOther.Value) rules.Add(new NameRule(Finding.Kind.Other, Plugin.OtherNames.Value));
             if (rules.Count == 0 || !ZoneSystem.instance)
             {
                 return;
@@ -248,8 +248,24 @@ namespace RavenScout
             }
         }
 
+        /// <summary>
+        /// One category's name list. A class, not a tuple: Valheim's .NET has no System.ValueTuple, so tuples
+        /// compile but fail when the game runs them.
+        /// </summary>
+        private class NameRule
+        {
+            public readonly Finding.Kind Kind;
+            public readonly Dictionary<string, string> Names;
+
+            public NameRule(Finding.Kind kind, string names)
+            {
+                Kind = kind;
+                Names = ParseNames(names);
+            }
+        }
+
         /// <summary>Longest matching name start wins, so "SunkenCrypt" isn't mistaken for "Crypt"-anything.</summary>
-        private static bool Match(List<(Finding.Kind kind, Dictionary<string, string> names)> rules, string prefab,
+        private static bool Match(List<NameRule> rules, string prefab,
             out Finding.Kind kind, out string label)
         {
             kind = Finding.Kind.Other;
@@ -257,12 +273,12 @@ namespace RavenScout
             int best = -1;
             foreach (var rule in rules)
             {
-                foreach (var pair in rule.names)
+                foreach (var pair in rule.Names)
                 {
                     if (pair.Key.Length > best && prefab.StartsWith(pair.Key, System.StringComparison.OrdinalIgnoreCase))
                     {
                         best = pair.Key.Length;
-                        kind = rule.kind;
+                        kind = rule.Kind;
                         label = pair.Value;
                     }
                 }

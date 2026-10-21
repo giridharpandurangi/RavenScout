@@ -26,6 +26,7 @@ namespace RavenScout
         private const float WatchGraceSeconds = 30f;
         /// <summary>Trips already reported this session, with when, in case the roost's owner never saved it.</summary>
         private static readonly Dictionary<string, float> s_reported = new Dictionary<string, float>();
+        private static readonly HashSet<string> s_failed = new HashSet<string>();
         private static bool s_scannedWorld;
         private static float s_nextTick;
 
@@ -39,6 +40,7 @@ namespace RavenScout
             }
             s_watched.Clear();
             s_reported.Clear();
+            s_failed.Clear();
             s_scannedWorld = false;
 
             rpc.Register<ZDOID>(RpcTripStarted, OnTripStarted);
@@ -117,7 +119,21 @@ namespace RavenScout
                     continue;
                 }
 
-                var result = Scouting.Survey(trip, key);
+                TripResult result;
+                try
+                {
+                    result = Scouting.Survey(trip, key);
+                }
+                catch (System.Exception e)
+                {
+                    // Try again later, but only fill the log once per trip.
+                    s_reported[key] = Time.time;
+                    if (s_failed.Add(key))
+                    {
+                        Plugin.Log.LogError($"Couldn't work out what the raven saw: {e}");
+                    }
+                    continue;
+                }
                 Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings)");
                 SendResult(trip.Sender, result);
                 s_reported[key] = Time.time;
