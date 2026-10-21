@@ -52,6 +52,26 @@ namespace RavenScout
         }
     }
 
+    /// <summary>Using a Scout Report (hotbar key or right-click) asks its feather for the way.</summary>
+    [HarmonyPatch(typeof(Humanoid), nameof(Humanoid.UseItem))]
+    internal static class ReportUsePatch
+    {
+        private static bool Prefix(Humanoid __instance, Inventory inventory, ItemDrop.ItemData item)
+        {
+            if (!ScoutReportItem.IsReport(item) || !(__instance is Player player) || player != Player.m_localPlayer)
+            {
+                return true;
+            }
+            // Only reports the player is carrying; one in an open chest should be taken out first.
+            if (inventory != null && inventory != player.GetInventory())
+            {
+                return true;
+            }
+            FeatherGuide.Use(player, item);
+            return false;
+        }
+    }
+
     /// <summary>Don't let the player deconstruct a roost while its raven is out.</summary>
     [HarmonyPatch(typeof(Container), nameof(Container.CanBeRemoved))]
     internal static class ContainerCanBeRemovedPatch

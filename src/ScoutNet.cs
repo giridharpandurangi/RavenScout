@@ -142,7 +142,7 @@ namespace RavenScout
                 Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings, " +
                                    $"map {(result.ApplyMap ? "yes" : "no")}, report item {(result.GaveReport ? "yes" : "no")})");
                 Send(trip.Sender, RpcResult, result);
-                MarkReported(zdo, key, result.Report, result.GaveReport ? result.ReportText : "");
+                MarkReported(zdo, key, result.Report, result.ReportText, result.GaveReport, result.Guide);
             }
         }
 
@@ -269,14 +269,17 @@ namespace RavenScout
         /// <summary>
         /// Only the owner of an object should change it, or one of the two changes can be lost. If a player
         /// owns the roost (they're near it), they save the report; otherwise the server does.
-        /// <paramref name="reportText"/> is the Scout Report item's text, or empty for none.
+        /// <paramref name="reportText"/> is the Scout Report's text: kept as the roost's last report (to copy),
+        /// and turned into an item when <paramref name="giveItem"/>.
         /// </summary>
-        private static void MarkReported(ZDO zdo, string key, string report, string reportText)
+        private static void MarkReported(ZDO zdo, string key, string report, string reportText, bool giveItem, string guide)
         {
             var pkg = new ZPackage();
             pkg.Write(key);
             pkg.Write(report ?? "");
             pkg.Write(reportText ?? "");
+            pkg.Write(giveItem);
+            pkg.Write(guide ?? "");
             long owner = zdo.GetOwner();
             if (owner != 0 && owner != ZDOMan.GetSessionID() && ZNet.instance.GetPeer(owner) != null)
             {
@@ -318,6 +321,8 @@ namespace RavenScout
             string key = pkg.ReadString();
             string report = pkg.ReadString();
             string reportText = pkg.ReadString();
+            bool giveItem = pkg.ReadBool();
+            string guide = pkg.ReadString();
 
             var trip = Scouting.ReadTrip(zdo);
             if (trip == null || trip.Key(zdo.m_uid) != key || trip.Reported)
@@ -327,11 +332,15 @@ namespace RavenScout
             trip.Reported = true;
             Scouting.WriteTrip(zdo, trip);
             zdo.Set(Scouting.ReportKey, report ?? "");
-            if (!string.IsNullOrEmpty(reportText))
+            int day = Scouting.Day(trip.ReturnAt);
+            zdo.Set(Scouting.LastTextKey, reportText ?? "");
+            zdo.Set(Scouting.LastDayKey, day);
+            zdo.Set(Scouting.LastGuideKey, guide ?? "");
+            if (giveItem && !string.IsNullOrEmpty(reportText))
             {
                 // The roost's owner turns it into an item in the roost's box (see RavenRoost.DeliverReports).
                 var pending = Scouting.ReadPending(zdo);
-                pending.Add(new PendingReport { Text = reportText, Roost = Scouting.RoostName(zdo), Day = Scouting.Day(trip.ReturnAt) });
+                pending.Add(new PendingReport { Text = reportText, Roost = Scouting.RoostName(zdo), Day = day, Guide = guide ?? "" });
                 Scouting.WritePending(zdo, pending);
             }
         }

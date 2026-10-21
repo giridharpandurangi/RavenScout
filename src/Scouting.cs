@@ -57,6 +57,9 @@ namespace RavenScout
 
         /// <summary>The Scout Report text (server only, not sent).</summary>
         public string ReportText;
+
+        /// <summary>Where the finds are, for the feather guide (server only, not sent). See Scouting.GuideFor.</summary>
+        public string Guide;
     }
 
     /// <summary>A Scout Report the server has written for a roost, waiting for room in the roost's box.</summary>
@@ -65,6 +68,7 @@ namespace RavenScout
         public string Text;
         public string Roost;
         public int Day;
+        public string Guide = "";
     }
 
     /// <summary>Trip storage, distances and times, and (on the server) working out what a raven saw.</summary>
@@ -74,6 +78,10 @@ namespace RavenScout
         public const string ReportKey = "ravenscout_report";
         public const string NameKey = "ravenscout_name";
         public const string PendingKey = "ravenscout_pending";
+        public const string LastTextKey = "ravenscout_lasttext";
+        public const string LastDayKey = "ravenscout_lastday";
+        public const string LastGuideKey = "ravenscout_lastguide";
+        private const int PendingVersionMarker = -2; // v0.2.0 saved the count first; later saves start with this
         public const string DefaultRoostName = "Raven Roost";
         private const int TripVersion = 2;
         private const int ResultVersion = 3;
@@ -154,10 +162,17 @@ namespace RavenScout
                 return list;
             }
             var pkg = new ZPackage(data);
-            int count = pkg.ReadInt();
+            int first = pkg.ReadInt();
+            bool withGuide = first == PendingVersionMarker;
+            int count = withGuide ? pkg.ReadInt() : first;
             for (int i = 0; i < count; i++)
             {
-                list.Add(new PendingReport { Text = pkg.ReadString(), Roost = pkg.ReadString(), Day = pkg.ReadInt() });
+                var report = new PendingReport { Text = pkg.ReadString(), Roost = pkg.ReadString(), Day = pkg.ReadInt() };
+                if (withGuide)
+                {
+                    report.Guide = pkg.ReadString();
+                }
+                list.Add(report);
             }
             return list;
         }
@@ -165,12 +180,14 @@ namespace RavenScout
         public static void WritePending(ZDO zdo, List<PendingReport> list)
         {
             var pkg = new ZPackage();
+            pkg.Write(PendingVersionMarker);
             pkg.Write(list.Count);
             foreach (var r in list)
             {
                 pkg.Write(r.Text ?? "");
                 pkg.Write(r.Roost ?? "");
                 pkg.Write(r.Day);
+                pkg.Write(r.Guide ?? "");
             }
             zdo.Set(PendingKey, pkg.GetArray());
         }
@@ -278,7 +295,23 @@ namespace RavenScout
             bool wildLand = FindObjects(trip, radius, result.Findings);
             result.Report = Report(trip, result.Findings, wildLand);
             result.ReportText = ScoutWords.Write(trip, result.Findings, wildLand);
+            result.Guide = GuideFor(result.Findings);
             return result;
+        }
+
+        private const int GuideTargets = 8;
+
+        /// <summary>
+        /// The finds the feather guide can point to, as "Label|x|z;Label|x|z". Places first (they're what you
+        /// walk to), then ore and food.
+        /// </summary>
+        public static string GuideFor(List<Finding> findings)
+        {
+            var order = new[] { Finding.Kind.Boss, Finding.Kind.Dungeon, Finding.Kind.Trader, Finding.Kind.Other, Finding.Kind.Ore, Finding.Kind.Food };
+            var picked = findings.OrderBy(f => System.Array.IndexOf(order, f.Type)).Take(GuideTargets);
+            return string.Join(";", picked.Select(f =>
+                $"{(f.Label ?? "").Replace("|", "/").Replace(";", ",")}|{f.Position.x.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}" +
+                $"|{f.Position.z.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}"));
         }
 
         private static void FindPlaces(ScoutTrip trip, float radius, List<Finding> findings)

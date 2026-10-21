@@ -18,6 +18,8 @@ namespace RavenScout
         private const string TextKey = "ravenscout_text";
         private const string RoostKey = "ravenscout_roost";
         private const string DayKey = "ravenscout_day";
+        public const string GuideKey = "ravenscout_guide";
+        public const string GuideUsesKey = "ravenscout_guideuses";
 
         private static ItemDrop.ItemData.SharedData s_shared;
 
@@ -45,7 +47,7 @@ namespace RavenScout
                              (s_shared != null && item.m_shared == s_shared));
 
         /// <summary>A new report item with this text, or null if the item isn't registered.</summary>
-        public static ItemDrop.ItemData Create(string text, string roost, int day)
+        public static ItemDrop.ItemData Create(string text, string roost, int day, string guide)
         {
             var prefab = ObjectDB.instance ? ObjectDB.instance.GetItemPrefab(PrefabName) : null;
             var drop = prefab ? prefab.GetComponent<ItemDrop>() : null;
@@ -59,6 +61,11 @@ namespace RavenScout
             item.m_customData[TextKey] = text ?? "";
             item.m_customData[RoostKey] = roost ?? "";
             item.m_customData[DayKey] = day.ToString();
+            if (!string.IsNullOrEmpty(guide))
+            {
+                item.m_customData[GuideKey] = guide;
+                item.m_customData[GuideUsesKey] = Mathf.Max(0, Plugin.FeatherGuideUses.Value).ToString();
+            }
             return item;
         }
 
@@ -77,7 +84,7 @@ namespace RavenScout
             {
                 header += $", Day {day}";
             }
-            return $"\n\n<color=orange>{Escape(header)}</color>\n<color=#e8dcc0>{Escape(text)}</color>";
+            return $"\n\n<color=orange>{Escape(header)}</color>\n<color=#e8dcc0>{Escape(text)}</color>{FeatherGuide.TooltipLine(item)}";
         }
 
         // Roost names are typed by players: stop them opening rich-text tags in the tooltip.

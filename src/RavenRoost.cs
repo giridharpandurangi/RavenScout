@@ -64,6 +64,36 @@ namespace RavenScout
 
         // ------------------------------------------------------------ Scout Reports
 
+        public bool HasReportToCopy => Zdo != null && !string.IsNullOrEmpty(Zdo.GetString(Scouting.LastTextKey));
+
+        /// <summary>Gives the player a copy of this roost's last report, for the cost in the config.</summary>
+        public void CopyReport(Player player)
+        {
+            if (Zdo == null || !player || !Plugin.ShareReports.Value)
+            {
+                return;
+            }
+            string text = Zdo.GetString(Scouting.LastTextKey);
+            if (string.IsNullOrEmpty(text))
+            {
+                player.Message(MessageHud.MessageType.Center, "No report to copy yet - send the raven first");
+                return;
+            }
+            var item = ScoutReportItem.Create(text, RoostName, Zdo.GetInt(Scouting.LastDayKey), Zdo.GetString(Scouting.LastGuideKey));
+            var inventory = player.GetInventory();
+            if (item == null || !inventory.CanAddItem(item))
+            {
+                player.Message(MessageHud.MessageType.Center, "Your bag is full");
+                return;
+            }
+            if (!Costs.TryPay(player, Costs.Parse(Plugin.CopyCost.Value)))
+            {
+                return;
+            }
+            inventory.AddItem(item);
+            player.Message(MessageHud.MessageType.Center, "A copy of the report is in your bag");
+        }
+
         /// <summary>Reports the server has written for this roost that don't fit in the box yet.</summary>
         public int PendingReports => Zdo != null ? Scouting.ReadPending(Zdo).Count : 0;
 
@@ -83,7 +113,7 @@ namespace RavenScout
             var left = new List<PendingReport>();
             foreach (var report in pending)
             {
-                var item = ScoutReportItem.Create(report.Text, report.Roost, report.Day);
+                var item = ScoutReportItem.Create(report.Text, report.Roost, report.Day, report.Guide);
                 if (item == null || !inventory.CanAddItem(item) || !inventory.AddItem(item))
                 {
                     left.Add(report); // box full: wait for room

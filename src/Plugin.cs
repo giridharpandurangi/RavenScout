@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.2.2";
+        public const string ModVersion = "0.3.0";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -70,6 +70,10 @@ namespace RavenScout
         internal static ConfigEntry<NoMapBehaviour> NoMapMode;
         internal static ConfigEntry<Precision> ReportPrecision;
         internal static ConfigEntry<KeyCode> RenameKey;
+        internal static ConfigEntry<bool> ShareReports;
+        internal static ConfigEntry<string> CopyCost;
+        internal static ConfigEntry<bool> FeatherGuideOn;
+        internal static ConfigEntry<int> FeatherGuideUses;
 
         internal static ConfigEntry<bool> UseFood;
         internal static ConfigEntry<HungryBehaviour> Hungry;
@@ -133,6 +137,15 @@ namespace RavenScout
                 Synced("How exact Scout Reports are. Vague: \"about 300 m\", \"far, over 2 km\", north-east. " +
                        "Rough: to the nearest 100 m. Exact: metres and compass degrees."));
             RenameKey = Config.Bind("Keys", "Rename", KeyCode.N, "While looking at a roost: give it a name (shown on its reports).");
+            ShareReports = Config.Bind("Report", "ShareReports", true,
+                Synced("Show a Copy report button at the roost: anyone can take a copy of its last report, to keep or give to a friend."));
+            CopyCost = Config.Bind("Report", "CopyCost", "Feathers:1",
+                Synced("What a copy costs, as PrefabName:Amount, comma-separated. Empty = free."));
+            FeatherGuideOn = Config.Bind("Report", "FeatherGuide", true,
+                Synced("Using a Scout Report (hotbar key or right-click) makes the raven's feather point left, right, ahead or behind " +
+                       "toward the nearest find on it. Never a marker or compass. Turn off for hardcore servers."));
+            FeatherGuideUses = Config.Bind("Report", "FeatherGuideUses", 3,
+                Synced("How many times each report's feather can point the way."));
 
             RevealRadius = Config.Bind("Spotting", "RevealRadius", 120f,
                 Synced("Half the width of the strip of map the raven reveals along its route, in metres."));

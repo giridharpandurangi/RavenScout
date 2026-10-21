@@ -1,4 +1,4 @@
-# Raven Scout (v0.2.2)
+# Raven Scout (v0.3.0)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -62,6 +62,12 @@ Paths are at the top of `RavenScout.csproj` (`ValheimDir`, `ProfileDir`, `Server
   - `ReportPrecision`: **Vague** ("about 300 m", "far to the east, over 2 km"), **Rough** (nearest 100 m) or
     **Exact** (metres and degrees).
 - **Names**: look at a roost and press **N** to name it; reports say "Scout report from Home, Day 23".
+- **Copy**: the **Copy** button at the roost gives you a Scout Report of its last trip (any mode, map or not),
+  to keep or give to a friend. Costs 1 Feather (`CopyCost`); turn off with `ShareReports = false`.
+- **Feather guide**: use a Scout Report (hotbar key or right-click) and the raven's feather points **ahead /
+  left / right / behind you** toward the nearest find on it, with a rough distance ("not far", "a good walk").
+  3 uses per report (`FeatherGuideUses`); being right at a find costs nothing. Never a marker or compass;
+  `FeatherGuide = false` turns it off for hardcore servers.
 - **Ore**: Valheim only creates ore rocks (and wild plants) when someone has been near that land. In wild land nobody has
   visited yet the raven can't see ore (the report says so). Dungeons, bosses and traders are seen anywhere.
 - **Multiplayer**: the server tracks trips and works out what the raven saw. The findings go to the player
@@ -80,6 +86,8 @@ All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settin
 - `src/ScoutWindow.cs`: the roost window
 - `src/ScoutReportItem.cs`: the Scout Report item: icon, text, tooltip
 - `src/ScoutWords.cs`: writing a report from the roost's point of view
+- `src/FeatherGuide.cs`: the feather's hint when a report is used
+- `src/Costs.cs`: item costs from the config (copies, upgrades)
 - `src/RavenFlight.cs`, `src/RoostModel.cs`, `src/RavenFood.cs`: raven visuals, roost look and food (from Raven Post)
 - `src/Patches.cs`: Harmony patches for hover text, feeding and removal
 
@@ -90,8 +98,8 @@ All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settin
 | v0.1 | Roost, one scouting trip, map reveal, pins, report; live tracking and food pins (0.1.2) |
 | v0.2 | No-map worlds: Scout Report item from the roost's point of view, precision options, roost names |
 | v0.3 | Copy reports for friends, feather guide |
+| v0.4 | Roost tiers through the biomes: more range and speed, ore and food spotting unlocked by tier |
 | Later | Click a spot on the map as the target; report history |
-| Later | Roost tiers through the biomes: longer range, faster trips, more things spotted |
 | Later | Small finds: a feather, a seed, a bit of ore |
 | Later | Shared or private findings in multiplayer; two ravens at high tiers; loop routes |
 | v1.0 | Thunderstore release |

@@ -27,6 +27,7 @@ namespace RavenScout
         private static Button s_feed;
         private static Button s_send;
         private static Text s_report;
+        private static Button s_copy;
 
         private static RavenRoost s_roost;
         private static float s_nextRefresh;
@@ -127,7 +128,8 @@ namespace RavenScout
             s_send = AddButton(t, "Send raven", new Vector2(72f, -428f), 130f, OnSendClicked);
 
             AddText(t, "Last report", -468f, 16, Gold, 26f).alignment = TextAnchor.MiddleLeft;
-            AddButton(t, "Clear food pins", new Vector2(70f, -468f), 140f, OnClearFoodPinsClicked, 28f);
+            s_copy = AddButton(t, "Copy", new Vector2(8f, -468f), 76f, OnCopyClicked, 28f);
+            AddButton(t, "Clear food", new Vector2(100f, -468f), 104f, OnClearFoodPinsClicked, 28f);
             s_report = AddText(t, "", -540f, 14, Plain, 112f);
             s_report.alignment = TextAnchor.UpperLeft;
             s_report.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -224,6 +226,8 @@ namespace RavenScout
 
             string report = s_roost.LastReport;
             s_report.text = string.IsNullOrEmpty(report) ? "<color=#a8a49a>No trips yet.</color>" : report;
+            s_copy.gameObject.SetActive(Plugin.ShareReports.Value);
+            s_copy.interactable = s_roost.HasReportToCopy;
         }
 
         /// <summary>What the raven will bring back, when that isn't simply map pins.</summary>
@@ -269,6 +273,15 @@ namespace RavenScout
             {
                 s_roost.FeedBest(player);
                 Refresh();
+            }
+        }
+
+        private static void OnCopyClicked()
+        {
+            var player = Player.m_localPlayer;
+            if (s_roost && player)
+            {
+                s_roost.CopyReport(player);
             }
         }
 
