@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.1.2";
+        public const string ModVersion = "0.1.3";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -45,6 +45,8 @@ namespace RavenScout
         internal static ConfigEntry<string> OreNames;
         internal static ConfigEntry<bool> SpotFood;
         internal static ConfigEntry<string> FoodNames;
+        internal static ConfigEntry<float> FoodPinSpacing;
+        internal static ConfigEntry<float> OrePinSpacing;
 
         // Live tracking
         internal static ConfigEntry<bool> LiveTracking;
@@ -128,6 +130,11 @@ namespace RavenScout
                 "Pickable_RoyalJelly=Royal Jelly",
                 Synced("Plant prefab name (exact) = pin label:N, comma-separated. N = how many must grow close together (within 60 m) for a pin; " +
                        "it stops single raspberry bushes from covering the map. Remove an entry to never pin it."));
+
+            FoodPinSpacing = Config.Bind("Spotting", "FoodPinSpacing", 300f,
+                Synced("Within this many metres, patches of the same food share one pin (at the biggest patch, with the total count)."));
+            OrePinSpacing = Config.Bind("Spotting", "OrePinSpacing", 100f,
+                Synced("Within this many metres, deposits of the same ore share one pin (with the total count)."));
 
             LiveTracking = Config.Bind("Live", "LiveTracking", true,
                 Synced("Reveal the map and add pins while the raven flies, instead of all at once when it returns."));

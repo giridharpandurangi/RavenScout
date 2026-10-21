@@ -94,14 +94,42 @@ namespace RavenScout
         /// <summary>Adds a saved pin for a finding, unless the map already has one like it nearby.</summary>
         public static bool AddPin(Minimap map, Finding f)
         {
-            string name = f.Label ?? "";
+            string label = f.Label ?? "";
+            // Food and ore patches move a little between trips (the biggest patch can change), so any pin of
+            // the same kind within the spacing counts as the same one.
+            float same = f.Type == Finding.Kind.Food ? Mathf.Max(SamePinDistance, Plugin.FoodPinSpacing.Value)
+                : f.Type == Finding.Kind.Ore ? Mathf.Max(SamePinDistance, Plugin.OrePinSpacing.Value)
+                : SamePinDistance;
             var pins = s_pins?.GetValue(map) as List<Minimap.PinData>;
-            if (pins != null && pins.Any(p => p.m_name == name && Scouting.DistanceXZ(p.m_pos, f.Position) < SamePinDistance))
+            if (pins != null && pins.Any(p => p.m_save && IsPinFor(p.m_name, label) && Scouting.DistanceXZ(p.m_pos, f.Position) < same))
             {
                 return false;
             }
-            map.AddPin(f.Position, PinFor(f.Type), name, true, false);
+            bool counted = (f.Type == Finding.Kind.Food || f.Type == Finding.Kind.Ore) && f.Count > 1;
+            map.AddPin(f.Position, PinFor(f.Type), counted ? $"{label} x{f.Count}" : label, true, false);
             return true;
+        }
+
+        /// <summary>True for "Raspberries" and "Raspberries x8" when the label is "Raspberries".</summary>
+        private static bool IsPinFor(string pinName, string label) =>
+            pinName == label || (pinName != null && pinName.StartsWith(label + " x", System.StringComparison.Ordinal));
+
+        /// <summary>Removes the food pins Raven Scout added (by their labels in FoodNames). Returns how many.</summary>
+        public static int ClearFoodPins()
+        {
+            var map = Minimap.instance;
+            var pins = map ? s_pins?.GetValue(map) as List<Minimap.PinData> : null;
+            if (pins == null)
+            {
+                return 0;
+            }
+            var labels = Scouting.FoodLabels();
+            var doomed = pins.Where(p => p.m_save && labels.Any(l => IsPinFor(p.m_name, l))).ToList();
+            foreach (var pin in doomed)
+            {
+                map.RemovePin(pin);
+            }
+            return doomed.Count;
         }
 
         private static Minimap.PinType PinFor(Finding.Kind kind)

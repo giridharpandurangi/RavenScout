@@ -125,7 +125,8 @@ namespace RavenScout
             s_feed = AddButton(t, "Feed", new Vector2(-72f, -428f), 130f, OnFeedClicked);
             s_send = AddButton(t, "Send raven", new Vector2(72f, -428f), 130f, OnSendClicked);
 
-            AddText(t, "Last report", -468f, 16, Gold, 26f);
+            AddText(t, "Last report", -468f, 16, Gold, 26f).alignment = TextAnchor.MiddleLeft;
+            AddButton(t, "Clear food pins", new Vector2(70f, -468f), 140f, OnClearFoodPinsClicked, 28f);
             s_report = AddText(t, "", -540f, 14, Plain, 112f);
             s_report.alignment = TextAnchor.UpperLeft;
             s_report.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -243,6 +244,17 @@ namespace RavenScout
             {
                 s_roost.FeedBest(player);
                 Refresh();
+            }
+        }
+
+        private static void OnClearFoodPinsClicked()
+        {
+            var player = Player.m_localPlayer;
+            if (player)
+            {
+                int removed = ScoutMap.ClearFoodPins();
+                player.Message(MessageHud.MessageType.Center,
+                    removed == 0 ? "No food pins on your map" : $"Removed {removed} food pin{(removed == 1 ? "" : "s")} from your map");
             }
         }
 

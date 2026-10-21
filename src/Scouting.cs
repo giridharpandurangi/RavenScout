@@ -381,15 +381,40 @@ namespace RavenScout
             // Food next to anything player-built is probably someone's farm, not wild food.
             found.RemoveAll(f => f.Type == Finding.Kind.Food && NearBuilt(f.Position, builtSectors));
 
+            var patches = new List<Finding>();
             foreach (var cluster in Cluster(found, ClusterDistance))
             {
                 var rule = rules.Values.FirstOrDefault(r => r.Kind == cluster.Type && r.Label == cluster.Label);
                 if (rule == null || cluster.Count >= rule.MinCount)
                 {
-                    findings.Add(cluster);
+                    patches.Add(cluster);
                 }
             }
+            findings.AddRange(Spread(patches));
             return wildLand;
+        }
+
+        /// <summary>
+        /// Meadows can be one big raspberry field: keep one pin per kind of food (or ore) per area, at its
+        /// biggest patch, and add the rest of the area's count to it.
+        /// </summary>
+        private static List<Finding> Spread(List<Finding> patches)
+        {
+            var kept = new List<Finding>();
+            foreach (var patch in patches.OrderByDescending(p => p.Count))
+            {
+                float spacing = patch.Type == Finding.Kind.Food ? Plugin.FoodPinSpacing.Value : Plugin.OrePinSpacing.Value;
+                var near = kept.FirstOrDefault(k => k.Label == patch.Label && DistanceXZ(k.Position, patch.Position) < spacing);
+                if (near != null)
+                {
+                    near.Count += patch.Count;
+                }
+                else
+                {
+                    kept.Add(patch);
+                }
+            }
+            return kept;
         }
 
         private const float ClusterDistance = 60f;
@@ -427,6 +452,14 @@ namespace RavenScout
                 }
             }
             return false;
+        }
+
+        /// <summary>The pin labels of everything in FoodNames ("Raspberries", not "Raspberries:3").</summary>
+        public static List<string> FoodLabels()
+        {
+            var rules = new Dictionary<int, ObjectRule>();
+            AddObjectRules(rules, Finding.Kind.Food, Plugin.FoodNames.Value, "FoodNames");
+            return rules.Values.Select(r => r.Label).Distinct().ToList();
         }
 
         private static IEnumerable<string> AllNames() =>
