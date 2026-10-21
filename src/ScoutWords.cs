@@ -12,7 +12,17 @@ namespace RavenScout
     /// </summary>
     internal static class ScoutWords
     {
-        private const int MaxFindLines = 12;
+        private const int MaxPlaceLines = 10;
+
+        /// <summary>"on a hill in the Black Forest, about 600 m north-east" as seen from the roost.</summary>
+        private static string Spot(Vector3 roost, Vector3 p)
+        {
+            string terrain = Terrain(p);
+            string biome = BiomePhrase(Biome(p));
+            string land = string.Join(" ", new[] { terrain, biome }.Where(s => s.Length > 0));
+            string where = Where(Scouting.DistanceXZ(roost, p), Scouting.Heading(roost, p));
+            return land.Length > 0 ? $"{land}, {where}" : where;
+        }
 
         public static string Write(ScoutTrip trip, List<Finding> findings, bool wildLand)
         {
@@ -26,26 +36,41 @@ namespace RavenScout
             }
             sb.Append('.');
 
-            var finds = findings
-                .Select(f => new { Find = f, Distance = Scouting.DistanceXZ(trip.From, f.Position) })
-                .OrderBy(f => f.Distance)
-                .ToList();
-            if (finds.Count == 0)
+            if (findings.Count == 0)
             {
                 sb.Append("\nSaw nothing worth a note.");
             }
-            foreach (var f in finds.Take(MaxFindLines))
+
+            // Places matter most: one line each, nearest first.
+            var places = findings
+                .Where(f => f.Type != Finding.Kind.Ore && f.Type != Finding.Kind.Food)
+                .OrderBy(f => Scouting.DistanceXZ(trip.From, f.Position))
+                .ToList();
+            foreach (var f in places.Take(MaxPlaceLines))
             {
-                var p = f.Find.Position;
-                string what = f.Find.Count > 1 ? $"{f.Find.Label} x{f.Find.Count}" : f.Find.Label;
-                string terrain = Terrain(p);
-                string biome = BiomePhrase(Biome(p));
-                sb.Append($"\n- {what}{(terrain.Length > 0 ? " " + terrain : "")}{(biome.Length > 0 ? " " + biome : "")}, " +
-                          $"{Where(f.Distance, Scouting.Heading(trip.From, p))}.");
+                sb.Append($"\n- {f.Label} {Spot(trip.From, f.Position)}.");
             }
-            if (finds.Count > MaxFindLines)
+            if (places.Count > MaxPlaceLines)
             {
-                sb.Append($"\n...and {finds.Count - MaxFindLines} more.");
+                sb.Append($"\n...and {places.Count - MaxPlaceLines} more places.");
+            }
+
+            // Ore, then food: one line per kind with the total and the nearest spot, so a field of
+            // dandelions doesn't push the crypts off the page.
+            foreach (var kind in new[] { Finding.Kind.Ore, Finding.Kind.Food })
+            {
+                foreach (var group in findings.Where(f => f.Type == kind).GroupBy(f => f.Label)
+                             .OrderBy(g => g.Min(f => Scouting.DistanceXZ(trip.From, f.Position))))
+                {
+                    int total = group.Sum(f => f.Count);
+                    int spots = group.Count();
+                    var nearest = group.OrderBy(f => Scouting.DistanceXZ(trip.From, f.Position)).First();
+                    string what = total > 1 ? $"{group.Key} x{total}" : group.Key;
+                    string where = spots > 1
+                        ? $" in {spots} {(kind == Finding.Kind.Food ? "patches" : "spots")}, nearest {Spot(trip.From, nearest.Position)}"
+                        : $" {Spot(trip.From, nearest.Position)}";
+                    sb.Append($"\n- {what}{where}.");
+                }
             }
 
             // Where the land changes, beyond the roost's own biome.
