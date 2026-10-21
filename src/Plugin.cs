@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.5.0";
+        public const string ModVersion = "1.0.0";
 
         public const string RoostPrefabName = "piece_ravenroost";
 

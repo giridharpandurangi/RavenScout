@@ -1,0 +1,10 @@
+{
+    "name": "RavenScout",
+    "version_number": "1.0.0",
+    "website_url": "",
+    "description": "Send a raven from a roost at your base on long scouting trips to far-away land. It maps its route and pins dungeons, bosses, traders and ore. Upgrade roosts through the biomes. No-map worlds get written reports.",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2351",
+        "ValheimModding-Jotunn-2.30.2"
+    ]
+}

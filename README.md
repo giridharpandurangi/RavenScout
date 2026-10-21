@@ -1,4 +1,4 @@
-# Raven Scout (v0.5.0)
+# Raven Scout (v1.0.0)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -22,6 +22,16 @@ dotnet build -c Release -p:Deploy=true
 ```
 
 Paths are at the top of `RavenScout.csproj` (`ValheimDir`, `ProfileDir`, `ServerDir`).
+
+To make the Thunderstore package:
+
+```bash
+dotnet build -c Release -p:Package=true
+```
+
+Output: `dist/RavenScout-<version>.zip`. The store page, changelog, icon and manifest are in `thunderstore/`
+(`make_icon.py` redraws the icon). The build stops if `thunderstore/manifest.json` has a different
+version from `<Version>` in the project file, so bump both together.
 
 ## How to play
 
