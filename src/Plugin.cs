@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.1.3";
+        public const string ModVersion = "0.1.4";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -55,6 +55,12 @@ namespace RavenScout
 
         // Food
         internal enum HungryBehaviour { FlySlowly, Refuse }
+
+        /// <summary>How food and ore pins are grouped on the map.</summary>
+        internal enum PinGrouping { Area, Patch, Each }
+
+        internal static ConfigEntry<PinGrouping> FoodPinGrouping;
+        internal static ConfigEntry<PinGrouping> OrePinGrouping;
 
         internal static ConfigEntry<bool> UseFood;
         internal static ConfigEntry<HungryBehaviour> Hungry;
@@ -118,8 +124,9 @@ namespace RavenScout
                 "giant_brain=Soft Tissue,giant_brain_frac=Soft Tissue,MineRock_Meteorite=Flametal,FlametalRockstand=Flametal," +
                 "FlametalRockstand_frac=Flametal,goldvein=Gold,goldvein_frac=Gold",
                 Synced("Ore object prefab name (exact) = pin label, comma-separated. Add :N to the label to need at least N close together."));
-            SpotFood = Config.Bind("Spotting", "SpotFood", true,
-                Synced("Pin wild food: berries, mushrooms, thistle, wild seeds. Like ore, only in land someone has already been near. " +
+            SpotFood = Config.Bind("Spotting", "SpotFood", false,
+                Synced("Pin wild food: berries, mushrooms, thistle, wild seeds. Off by default: like ore, plants only exist in land someone " +
+                       "has already been near, so it's a rough guide, not a full list. " +
                        "Picked plants and plants next to anything player-built (farms) are skipped."));
             FoodNames = Config.Bind("Spotting", "FoodNames",
                 "RaspberryBush=Raspberries:3,BlueberryBush=Blueberries:3,CloudberryBush=Cloudberries:3,LingonberryBush=Lingonberries:3," +
@@ -135,6 +142,12 @@ namespace RavenScout
                 Synced("Within this many metres, patches of the same food share one pin (at the biggest patch, with the total count)."));
             OrePinSpacing = Config.Bind("Spotting", "OrePinSpacing", 100f,
                 Synced("Within this many metres, deposits of the same ore share one pin (with the total count)."));
+            FoodPinGrouping = Config.Bind("Spotting", "FoodPinGrouping", PinGrouping.Area,
+                Synced("How food is pinned. Area: one pin per food within FoodPinSpacing, with the total count. " +
+                       "Patch: one pin per patch (plants within 60 m, at least the :N in FoodNames). Each: a pin on every single plant (many pins)."));
+            OrePinGrouping = Config.Bind("Spotting", "OrePinGrouping", PinGrouping.Area,
+                Synced("How ore is pinned. Area: one pin per ore within OrePinSpacing, with the total count. " +
+                       "Patch: one pin per group of deposits within 60 m. Each: a pin on every single deposit."));
 
             LiveTracking = Config.Bind("Live", "LiveTracking", true,
                 Synced("Reveal the map and add pins while the raven flies, instead of all at once when it returns."));

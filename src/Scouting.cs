@@ -381,8 +381,10 @@ namespace RavenScout
             // Food next to anything player-built is probably someone's farm, not wild food.
             found.RemoveAll(f => f.Type == Finding.Kind.Food && NearBuilt(f.Position, builtSectors));
 
+            // Each: a pin per plant or rock. Patch: a pin per patch big enough. Area: one pin per kind per area.
+            findings.AddRange(found.Where(f => GroupingFor(f.Type) == Plugin.PinGrouping.Each));
             var patches = new List<Finding>();
-            foreach (var cluster in Cluster(found, ClusterDistance))
+            foreach (var cluster in Cluster(found.Where(f => GroupingFor(f.Type) != Plugin.PinGrouping.Each).ToList(), ClusterDistance))
             {
                 var rule = rules.Values.FirstOrDefault(r => r.Kind == cluster.Type && r.Label == cluster.Label);
                 if (rule == null || cluster.Count >= rule.MinCount)
@@ -390,8 +392,33 @@ namespace RavenScout
                     patches.Add(cluster);
                 }
             }
-            findings.AddRange(Spread(patches));
+            findings.AddRange(patches.Where(p => GroupingFor(p.Type) == Plugin.PinGrouping.Patch));
+            findings.AddRange(Spread(patches.Where(p => GroupingFor(p.Type) == Plugin.PinGrouping.Area).ToList()));
             return wildLand;
+        }
+
+        public static Plugin.PinGrouping GroupingFor(Finding.Kind kind) =>
+            kind == Finding.Kind.Food ? Plugin.FoodPinGrouping.Value : Plugin.OrePinGrouping.Value;
+
+        /// <summary>
+        /// How close an existing pin of the same name must be to count as the same find. Patches and areas move a
+        /// little between trips (the biggest patch can change), so they use their own spacing.
+        /// </summary>
+        public static float SamePinDistance(Finding.Kind kind, float placeDistance)
+        {
+            if (kind != Finding.Kind.Food && kind != Finding.Kind.Ore)
+            {
+                return placeDistance;
+            }
+            switch (GroupingFor(kind))
+            {
+                case Plugin.PinGrouping.Each:
+                    return 2f;
+                case Plugin.PinGrouping.Patch:
+                    return ClusterDistance * 0.5f;
+                default:
+                    return Mathf.Max(placeDistance, kind == Finding.Kind.Food ? Plugin.FoodPinSpacing.Value : Plugin.OrePinSpacing.Value);
+            }
         }
 
         /// <summary>

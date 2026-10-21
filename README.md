@@ -1,4 +1,4 @@
-# Raven Scout (v0.1.3)
+# Raven Scout (v0.1.4)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -51,7 +51,7 @@ Paths are at the top of `RavenScout.csproj` (`ValheimDir`, `ProfileDir`, `Server
 - One raven per roost. A roost can't be deconstructed while its raven is out.
 - **Food**: each plant in `FoodNames` can need a patch (e.g. `RaspberryBush=Raspberries:3` = at least 3
   bushes within 60 m), so single bushes don't fill the map, and within `FoodPinSpacing` (300 m) patches of the same food share one pin with the total count (`Raspberries x8`). **Clear food pins** in the roost window removes them from your map. Picked plants and plants next to anything
-  player-built (farms) are skipped. Turn it all off with `SpotFood = false`.
+  player-built (farms) are skipped. Food pins are **off by default** (`SpotFood = true` to turn them on): plants only exist in land that's been loaded, so it's a rough guide. `FoodPinGrouping` / `OrePinGrouping`: **Area** (one pin per area, default), **Patch** (one per patch) or **Each** (every plant or rock).
 - **No-map worlds**: the map is never revealed or pinned; the report at the roost is the news (more in v0.2).
 - **Ore**: Valheim only creates ore rocks (and wild plants) when someone has been near that land. In wild land nobody has
   visited yet the raven can't see ore (the report says so). Dungeons, bosses and traders are seen anywhere.

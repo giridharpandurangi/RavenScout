@@ -95,11 +95,7 @@ namespace RavenScout
         public static bool AddPin(Minimap map, Finding f)
         {
             string label = f.Label ?? "";
-            // Food and ore patches move a little between trips (the biggest patch can change), so any pin of
-            // the same kind within the spacing counts as the same one.
-            float same = f.Type == Finding.Kind.Food ? Mathf.Max(SamePinDistance, Plugin.FoodPinSpacing.Value)
-                : f.Type == Finding.Kind.Ore ? Mathf.Max(SamePinDistance, Plugin.OrePinSpacing.Value)
-                : SamePinDistance;
+            float same = Scouting.SamePinDistance(f.Type, SamePinDistance);
             var pins = s_pins?.GetValue(map) as List<Minimap.PinData>;
             if (pins != null && pins.Any(p => p.m_save && IsPinFor(p.m_name, label) && Scouting.DistanceXZ(p.m_pos, f.Position) < same))
             {
