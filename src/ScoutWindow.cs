@@ -193,9 +193,9 @@ namespace RavenScout
             s_tierStats = AddText(t, "", -190f, 15, Plain, 100f);
             s_tierStats.horizontalOverflow = HorizontalWrapMode.Wrap;
 
-            s_nextHeader = AddText(t, "", -290f, 16, Gold, 50f);
+            s_nextHeader = AddText(t, "", -295f, 16, Gold, 72f);
             s_nextHeader.horizontalOverflow = HorizontalWrapMode.Wrap;
-            float y = -330f;
+            float y = -350f;
             for (int i = 0; i < CostLines; i++)
             {
                 s_costLines.Add(AddText(t, "", y, 15, Plain, 24f));
