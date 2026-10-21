@@ -1,4 +1,4 @@
-# Raven Scout (v0.2.0)
+# Raven Scout (v0.2.1)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.

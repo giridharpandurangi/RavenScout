@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.2.0";
+        public const string ModVersion = "0.2.1";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -81,6 +81,31 @@ namespace RavenScout
 
         private Harmony _harmony;
 
+        // v0.1 default, kept so configs still holding it get the new list (see UpgradeDefault).
+        private const string OtherNamesV1 =
+            "GoblinCamp=Fuling Village,DrakeNest=Drake Nest,TarPit=Tar Pit,Mistlands_Giant=Giant Remains," +
+            "Mistlands_Excavation=Dvergr Excavation,WoodVillage=Abandoned Village,StoneHenge=Stone Circle,NorthVillage=Northern Village";
+
+        private const string OtherNamesDefault = OtherNamesV1 +
+            ",Mistlands_GuardTower=Dvergr Tower,Mistlands_Lighthouse=Dvergr Lighthouse,MorgenHole=Morgen Hole," +
+            "CharredRuins=Charred Ruins,CharredTowerRuins=Charred Tower,VoltureNest=Volture Nest,HotSpring=Hot Spring," +
+            "NorthMemorialPlace=Memorial Site";
+
+        /// <summary>
+        /// BepInEx never changes a value already in the config file, so new default entries wouldn't reach
+        /// existing players. If the value is still an old default (nobody edited it), switch to the new one.
+        /// </summary>
+        private void UpgradeDefault(ConfigEntry<string> entry, string oldDefault)
+        {
+            string current = entry.Value;
+            string fresh = (string)entry.DefaultValue;
+            if (current != fresh && current == oldDefault)
+            {
+                entry.Value = fresh;
+                Log.LogInfo($"{entry.Definition.Key}: updated to the new default list");
+            }
+        }
+
         /// <summary>Gameplay settings come from the server so everyone plays by the same rules.</summary>
         internal static ConfigDescription Synced(string description) =>
             new ConfigDescription(description, null, new ConfigurationManagerAttributes { IsAdminOnly = true });
@@ -129,10 +154,9 @@ namespace RavenScout
                 "Vendor_BlackForest=Haldor,Hildir_camp=Hildir,BogWitch_Camp=Bog Witch",
                 Synced("Location prefab name (or start of it) = pin label, comma-separated."));
             SpotOther = Config.Bind("Spotting", "SpotOther", true, Synced("Pin other interesting places."));
-            OtherNames = Config.Bind("Spotting", "OtherNames",
-                "GoblinCamp=Fuling Village,DrakeNest=Drake Nest,TarPit=Tar Pit,Mistlands_Giant=Giant Remains," +
-                "Mistlands_Excavation=Dvergr Excavation,WoodVillage=Abandoned Village,StoneHenge=Stone Circle,NorthVillage=Northern Village",
+            OtherNames = Config.Bind("Spotting", "OtherNames", OtherNamesDefault,
                 Synced("Location prefab name (or start of it) = pin label, comma-separated."));
+            UpgradeDefault(OtherNames, OtherNamesV1);
             SpotOres = Config.Bind("Spotting", "SpotOres", true,
                 Synced("Pin ore deposits. Only land someone has already been near has ore in it, so far wild land shows none."));
             OreNames = Config.Bind("Spotting", "OreNames",
