@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.3.0";
+        public const string ModVersion = "0.4.0";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -224,6 +224,8 @@ namespace RavenScout
             RawMeatItems = Config.Bind("Food", "RawMeatItems",
                 "RawMeat,DeerMeat,NeckTail,WolfMeat,LoxMeat,SerpentMeat,BugMeat,HareMeat,ChickenMeat,AsksvinMeat,VoltureMeat,BoneMawSerpentMeat",
                 Synced("Comma-separated item prefab names ravens eat raw."));
+
+            RoostTiers.Bind(Config);
 
             PrefabManager.OnVanillaPrefabsAvailable += AddRoostPiece;
 

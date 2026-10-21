@@ -17,6 +17,7 @@ namespace RavenScout
         public float Meal = 1f;
         public bool Reported; // the server has handed the findings to the sender
         public bool SenderNoMap; // v2: the sender had no map (world setting or their own choice) when sending
+        public int Tier;         // v3: the roost's tier when sending (what the raven can see)
 
         public bool IsAway(double now) => now < ReturnAt;
 
@@ -83,7 +84,7 @@ namespace RavenScout
         public const string LastGuideKey = "ravenscout_lastguide";
         private const int PendingVersionMarker = -2; // v0.2.0 saved the count first; later saves start with this
         public const string DefaultRoostName = "Raven Roost";
-        private const int TripVersion = 2;
+        private const int TripVersion = 3;
         private const int ResultVersion = 3;
 
         /// <summary>Ravens turn back at the edge of the world.</summary>
@@ -127,6 +128,10 @@ namespace RavenScout
             {
                 trip.SenderNoMap = pkg.ReadBool();
             }
+            if (version >= 3)
+            {
+                trip.Tier = pkg.ReadInt();
+            }
             return trip;
         }
 
@@ -142,6 +147,7 @@ namespace RavenScout
             pkg.Write(trip.Meal);
             pkg.Write(trip.Reported);
             pkg.Write(trip.SenderNoMap);
+            pkg.Write(trip.Tier);
             zdo.Set(TripKey, pkg.GetArray());
         }
 
@@ -287,9 +293,9 @@ namespace RavenScout
                 ReturnAt = trip.ReturnAt,
                 From = trip.From,
                 Target = trip.Target,
-                RevealRadius = Plugin.RevealRadius.Value,
+                RevealRadius = Plugin.RevealRadius.Value * RoostTiers.Get(trip.Tier).SightMultiplier,
             };
-            float radius = Mathf.Max(0f, Plugin.SpotRadius.Value);
+            float radius = Mathf.Max(0f, Plugin.SpotRadius.Value * RoostTiers.Get(trip.Tier).SightMultiplier);
 
             FindPlaces(trip, radius, result.Findings);
             bool wildLand = FindObjects(trip, radius, result.Findings);
@@ -403,11 +409,11 @@ namespace RavenScout
         private static bool FindObjects(ScoutTrip trip, float radius, List<Finding> findings)
         {
             var rules = new Dictionary<int, ObjectRule>();
-            if (Plugin.SpotOres.Value)
+            if (RoostTiers.SpotsOre(trip.Tier))
             {
                 AddObjectRules(rules, Finding.Kind.Ore, Plugin.OreNames.Value, "OreNames");
             }
-            if (Plugin.SpotFood.Value)
+            if (RoostTiers.SpotsFood(trip.Tier))
             {
                 AddObjectRules(rules, Finding.Kind.Food, Plugin.FoodNames.Value, "FoodNames");
             }

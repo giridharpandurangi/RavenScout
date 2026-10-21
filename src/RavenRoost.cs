@@ -31,6 +31,33 @@ namespace RavenScout
             }
             InvokeRepeating(nameof(UpdateSeat), 0.5f, 0.5f);
             InvokeRepeating(nameof(DeliverReports), 1f, 2f);
+            RoostTiers.ValidateItems();
+        }
+
+        // ------------------------------------------------------------ tiers
+
+        public int TierIndex => Zdo != null ? Mathf.Clamp(Zdo.GetInt(RoostTiers.TierKey), 0, RoostTiers.Max) : 0;
+
+        internal RoostTier Tier => RoostTiers.Get(TierIndex);
+
+        internal RoostTier NextTier => TierIndex < RoostTiers.Max ? RoostTiers.Get(TierIndex + 1) : null;
+
+        /// <summary>Upgrades to the next tier, taking the materials from the player's inventory.</summary>
+        public void Upgrade(Player player)
+        {
+            var next = NextTier;
+            if (Zdo == null || !player || next == null || !EnsureOwner(player))
+            {
+                return;
+            }
+            if (!Costs.TryPay(player, next.Requirements()))
+            {
+                return;
+            }
+            Zdo.Set(RoostTiers.TierKey, next.Index);
+            player.Message(MessageHud.MessageType.Center,
+                $"Upgraded to {next.Name}: range x{next.RangeMultiplier:0.##}, speed x{next.SpeedMultiplier:0.##}");
+            Plugin.Log.LogInfo($"'{RoostName}' upgraded to {next.Name}");
         }
 
         private ZDO Zdo => _nview && _nview.IsValid() ? _nview.GetZDO() : null;
@@ -132,15 +159,18 @@ namespace RavenScout
         public void SetDistance(float metres) =>
             Distance = Mathf.Clamp(Mathf.Round(metres / 50f) * 50f, Plugin.MinDistance.Value, Mathf.Max(Plugin.MinDistance.Value, MaxRange));
 
-        /// <summary>How far out the raven can fly with its next meal.</summary>
-        public float MaxRange => Scouting.RangeFor(NextMealSpeed);
+        /// <summary>How far out the raven can fly with its next meal from this roost's tier.</summary>
+        public float MaxRange => Scouting.RangeFor(NextMealSpeed * Tier.RangeMultiplier);
+
+        /// <summary>Flight speed: the meal times the roost's tier.</summary>
+        public float FlightSpeed => NextMealSpeed * Tier.SpeedMultiplier;
 
         /// <summary>The chosen distance, shortened to what the next meal allows.</summary>
         public float PlannedDistance => Mathf.Clamp(Distance, Plugin.MinDistance.Value, Mathf.Max(Plugin.MinDistance.Value, MaxRange));
 
         public Vector3 PlannedTarget => Scouting.TargetPoint(transform.position, Heading, PlannedDistance);
 
-        public float PlannedSeconds => Scouting.TripSeconds(Scouting.DistanceXZ(transform.position, PlannedTarget), NextMealSpeed);
+        public float PlannedSeconds => Scouting.TripSeconds(Scouting.DistanceXZ(transform.position, PlannedTarget), FlightSpeed);
 
         // ------------------------------------------------------------ food (same as Raven Post)
 
@@ -213,7 +243,7 @@ namespace RavenScout
             meals.Add(speed);
             RavenFood.WriteMeals(Zdo, meals);
             player.Message(MessageHud.MessageType.Center, Localization.instance.Localize(
-                $"The raven ate {item.m_shared.m_name} ({RavenFood.FormatSpeed(speed)}: {Scouting.FormatDistance(Scouting.RangeFor(speed))} range) - {meals.Count}/{max} meals"));
+                $"The raven ate {item.m_shared.m_name} ({RavenFood.FormatSpeed(speed)}: {Scouting.FormatDistance(Scouting.RangeFor(speed * Tier.RangeMultiplier))} range) - {meals.Count}/{max} meals"));
             return true;
         }
 
@@ -320,6 +350,7 @@ namespace RavenScout
             }
 
             float meal = NextMealSpeed;
+            float speed = FlightSpeed;
             var target = PlannedTarget;
             float distance = Scouting.DistanceXZ(transform.position, target);
             if (distance < Plugin.MinDistance.Value * 0.5f)
@@ -327,7 +358,7 @@ namespace RavenScout
                 player.Message(MessageHud.MessageType.Center, "That way is the edge of the world");
                 return;
             }
-            float seconds = Scouting.TripSeconds(distance, meal);
+            float seconds = Scouting.TripSeconds(distance, speed);
 
             var trip = new ScoutTrip
             {
@@ -338,6 +369,7 @@ namespace RavenScout
                 Sender = player.GetPlayerName(),
                 Meal = meal,
                 SenderNoMap = Game.m_noMap,
+                Tier = TierIndex,
             };
             Scouting.WriteTrip(Zdo, trip);
             ScoutNet.TripStarted(Zdo.m_uid);
@@ -353,8 +385,8 @@ namespace RavenScout
                 Zdo.Set(TripsLogKey, $"{Scouting.Day(now)}:{TripsToday + 1}");
             }
 
-            RavenFlight.Launch(SeatPosition, target, seconds, meal);
-            ScoutNet.BroadcastTakeOff(SeatPosition, target, seconds, meal);
+            RavenFlight.Launch(SeatPosition, target, seconds, speed);
+            ScoutNet.BroadcastTakeOff(SeatPosition, target, seconds, speed);
             UpdateSeat();
 
             string dir = Scouting.CompassName(Scouting.Heading(transform.position, target));
@@ -416,7 +448,7 @@ namespace RavenScout
                 return "";
             }
             var sb = new StringBuilder();
-            sb.Append($"\n<color=orange>{RoostName}</color>  [<color=yellow><b>{Plugin.RenameKey.Value}</b></color>] Rename");
+            sb.Append($"\n<color=orange>{RoostName}</color>  <color=grey>{Tier.Name}</color>  [<color=yellow><b>{Plugin.RenameKey.Value}</b></color>] Rename");
             var trip = Trip;
             double now = Scouting.Now;
             if (trip != null && trip.IsAway(now))

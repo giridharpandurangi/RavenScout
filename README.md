@@ -1,4 +1,4 @@
-# Raven Scout (v0.3.0)
+# Raven Scout (v0.4.0)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -41,6 +41,26 @@ Paths are at the top of `RavenScout.csproj` (`ValheimDir`, `ProfileDir`, `Server
    - pins for ore deposits and wild food (berries, mushrooms, thistle, wild seeds...) in land that has
      already been loaded
    The roost window shows the trip's **report** (distance, biomes, what was spotted).
+
+## Roost tiers
+
+Open the roost and switch to the **Roost** tab to see its tier and upgrade it. Tier and meal multiply:
+a Black Metal roost (x2) with x2.5 food reaches 7.5 km.
+
+| Tier | Biome | Upgrade cost | Range | Speed | Sight | Also |
+|---|---|---|---|---|---|---|
+| Wooden Roost | Meadows | (build cost) | x1.0 | x1.0 | x1.0 | Spots places |
+| Bronze Roost | Black Forest | 5 Bronze, 10 Bronze Nails | x1.25 | x1.1 | x1.0 | **Spots ore** |
+| Iron Roost | Swamp | 10 Iron, 5 Guck | x1.5 | x1.2 | x1.25 | **Spots wild food** (if `SpotFood`) |
+| Silver Roost | Mountains | 10 Silver, 4 Wolf Pelt | x1.75 | x1.35 | x1.25 | |
+| Black Metal Roost | Plains | 10 Black Metal, 10 Linen Thread | x2.0 | x1.5 | x1.25 | |
+| Eitr Roost | Mistlands | 2 Black Core, 10 Eitr, 10 Carapace | x2.5 | x1.75 | x1.5 | |
+| Flametal Roost | Ashlands | 10 Flametal, 3 Celestial Feathers | x3.0 | x2.0 | x1.5 | |
+| Deep North Roost | Deep North | 30 Flametal, 2 Molten Core (stand-in) | x4.0 | x2.5 | x1.5 | |
+
+Sight widens the revealed strip and how far from the route the raven spots things. Every cost and number
+is in the config (`Tier N - ...` sections), and `OresFromTier` / `FoodFromTier` (in `Tiers`) set when ore
+and food spotting start; 0 = every roost.
 
 ## Rules
 
@@ -88,6 +108,7 @@ All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settin
 - `src/ScoutWords.cs`: writing a report from the roost's point of view
 - `src/FeatherGuide.cs`: the feather's hint when a report is used
 - `src/Costs.cs`: item costs from the config (copies, upgrades)
+- `src/RoostTiers.cs`: roost tiers, their costs, range, speed and sight
 - `src/RavenFlight.cs`, `src/RoostModel.cs`, `src/RavenFood.cs`: raven visuals, roost look and food (from Raven Post)
 - `src/Patches.cs`: Harmony patches for hover text, feeding and removal
 
