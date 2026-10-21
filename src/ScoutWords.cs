@@ -46,13 +46,28 @@ namespace RavenScout
                 .Where(f => f.Type != Finding.Kind.Ore && f.Type != Finding.Kind.Food)
                 .OrderBy(f => Scouting.DistanceXZ(trip.From, f.Position))
                 .ToList();
-            foreach (var f in places.Take(MaxPlaceLines))
+            // Places that would read the same ("Burial Chambers in the Black Forest, about 1 km east") share a line.
+            var placeLines = new List<string>();
+            var placeCounts = new Dictionary<string, int>();
+            foreach (var f in places)
             {
-                sb.Append($"\n- {f.Label} {Spot(trip.From, f.Position)}.");
+                string line = $"{f.Label}|{Spot(trip.From, f.Position)}";
+                if (!placeCounts.ContainsKey(line))
+                {
+                    placeLines.Add(line);
+                    placeCounts[line] = 0;
+                }
+                placeCounts[line]++;
             }
-            if (places.Count > MaxPlaceLines)
+            foreach (var line in placeLines.Take(MaxPlaceLines))
             {
-                sb.Append($"\n...and {places.Count - MaxPlaceLines} more places.");
+                var bits = line.Split(new[] { '|' }, 2);
+                int n = placeCounts[line];
+                sb.Append($"\n- {bits[0]}{(n > 1 ? $" x{n}" : "")} {bits[1]}.");
+            }
+            if (placeLines.Count > MaxPlaceLines)
+            {
+                sb.Append($"\n...and {placeLines.Skip(MaxPlaceLines).Sum(l => placeCounts[l])} more places.");
             }
 
             // Ore, then food: one line per kind with the total and the nearest spot, so a field of
@@ -65,7 +80,8 @@ namespace RavenScout
                     int total = group.Sum(f => f.Count);
                     int spots = group.Count();
                     var nearest = group.OrderBy(f => Scouting.DistanceXZ(trip.From, f.Position)).First();
-                    string what = total > 1 ? $"{group.Key} x{total}" : group.Key;
+                    // "Tin in 32 spots" when every spot is a single deposit; "Tin x32 in 5 spots" otherwise.
+                    string what = total > 1 && total != spots ? $"{group.Key} x{total}" : group.Key;
                     string where = spots > 1
                         ? $" in {spots} {(kind == Finding.Kind.Food ? "patches" : "spots")}, nearest {Spot(trip.From, nearest.Position)}"
                         : $" {Spot(trip.From, nearest.Position)}";
@@ -111,7 +127,10 @@ namespace RavenScout
                     if (metres < 2000f)
                     {
                         float km = Mathf.Round(metres / 500f) * 0.5f;
-                        return $"about {km:0.#} km {dir}";
+                        // "about 0.5 km" reads oddly: say metres below a kilometre.
+                        return km < 1f
+                            ? $"about {Mathf.RoundToInt(metres / 100f) * 100} m {dir}"
+                            : $"about {km:0.#} km {dir}";
                     }
                     return $"far to the {dir}, over {Mathf.FloorToInt(metres / 1000f)} km";
             }
