@@ -1,0 +1,194 @@
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using HarmonyLib;
+using Jotunn.Configs;
+using Jotunn.Entities;
+using Jotunn.Managers;
+using Jotunn.Utils;
+using UnityEngine;
+
+namespace RavenScout
+{
+    [BepInPlugin(ModGuid, ModName, ModVersion)]
+    [BepInDependency(Jotunn.Main.ModGuid)]
+    [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Minor)]
+    public class Plugin : BaseUnityPlugin
+    {
+        public const string ModGuid = "com.ravenscout.valheim";
+        public const string ModName = "Raven Scout";
+        public const string ModVersion = "0.1.0";
+
+        public const string RoostPrefabName = "piece_ravenroost";
+
+        internal static ManualLogSource Log;
+
+        // Trips
+        internal static ConfigEntry<float> BaseRange;
+        internal static ConfigEntry<float> MinDistance;
+        internal static ConfigEntry<float> SecondsPer100m;
+        internal static ConfigEntry<float> MinTripSeconds;
+        internal static ConfigEntry<int> MaxTripsPerDay;
+
+        // What the raven sees
+        internal static ConfigEntry<float> RevealRadius;
+        internal static ConfigEntry<float> SpotRadius;
+        internal static ConfigEntry<bool> SpotDungeons;
+        internal static ConfigEntry<string> DungeonNames;
+        internal static ConfigEntry<bool> SpotBosses;
+        internal static ConfigEntry<string> BossNames;
+        internal static ConfigEntry<bool> SpotTraders;
+        internal static ConfigEntry<string> TraderNames;
+        internal static ConfigEntry<bool> SpotOther;
+        internal static ConfigEntry<string> OtherNames;
+        internal static ConfigEntry<bool> SpotOres;
+        internal static ConfigEntry<string> OreNames;
+
+        // Food
+        internal enum HungryBehaviour { FlySlowly, Refuse }
+
+        internal static ConfigEntry<bool> UseFood;
+        internal static ConfigEntry<HungryBehaviour> Hungry;
+        internal static ConfigEntry<float> HungrySpeed;
+        internal static ConfigEntry<int> MaxMeals;
+        internal static ConfigEntry<float> MaxFoodSpeed;
+        internal static ConfigEntry<float> RawMeatSpeed;
+        internal static ConfigEntry<string> RawMeatItems;
+
+        private Harmony _harmony;
+
+        /// <summary>Gameplay settings come from the server so everyone plays by the same rules.</summary>
+        internal static ConfigDescription Synced(string description) =>
+            new ConfigDescription(description, null, new ConfigurationManagerAttributes { IsAdminOnly = true });
+
+        private void Awake()
+        {
+            Log = Logger;
+
+            BaseRange = Config.Bind("Trip", "BaseRange", 1500f,
+                Synced("How far (metres) a raven with an ordinary meal (x1.0) can fly out. The meal's speed multiplies it: x1.6 food = 2400 m."));
+            MinDistance = Config.Bind("Trip", "MinDistance", 200f,
+                Synced("Shortest scouting trip, in metres."));
+            SecondsPer100m = Config.Bind("Trip", "SecondsPer100m", 15f,
+                Synced("Seconds a raven at x1.0 speed needs per 100 m. The trip is there and back, so 1 km out takes 300 s at x1.0. In-game time: sleeping speeds it up."));
+            MinTripSeconds = Config.Bind("Trip", "MinTripSeconds", 30f,
+                Synced("Shortest possible trip, in seconds."));
+            MaxTripsPerDay = Config.Bind("Trip", "MaxTripsPerDay", 0,
+                Synced("How many trips each roost can start per in-game day. 0 = unlimited (a roost always has only one raven out)."));
+
+            RevealRadius = Config.Bind("Spotting", "RevealRadius", 120f,
+                Synced("Half the width of the strip of map the raven reveals along its route, in metres."));
+            SpotRadius = Config.Bind("Spotting", "SpotRadius", 150f,
+                Synced("How far from its route (metres) the raven spots places and ore."));
+            SpotDungeons = Config.Bind("Spotting", "SpotDungeons", true, Synced("Pin dungeons: crypts, caves, mines."));
+            DungeonNames = Config.Bind("Spotting", "DungeonNames",
+                "Crypt=Burial Chambers,HalfBurried_ForestCrypt=Burial Chambers,SunkenCrypt=Sunken Crypt,TrollCave=Troll Cave," +
+                "MountainCave=Frost Cave,Mistlands_DvergrTownEntrance=Infested Mine,CharredFortress=Charred Fortress," +
+                "Hildir_crypt=Smouldering Tomb,Hildir_cave=Howling Cavern,Hildir_plainsfortress=Sealed Tower",
+                Synced("Location prefab name (or start of it) = pin label, comma-separated."));
+            SpotBosses = Config.Bind("Spotting", "SpotBosses", true, Synced("Pin boss altars."));
+            BossNames = Config.Bind("Spotting", "BossNames",
+                "Eikthyrnir=Eikthyr,GDKing=The Elder,Bonemass=Bonemass,Dragonqueen=Moder,GoblinKing=Yagluth," +
+                "Mistlands_DvergrBossEntrance=The Queen,FaderLocation=Fader,DN_Bossroom=Deep North boss",
+                Synced("Location prefab name (or start of it) = pin label, comma-separated."));
+            SpotTraders = Config.Bind("Spotting", "SpotTraders", true, Synced("Pin traders."));
+            TraderNames = Config.Bind("Spotting", "TraderNames",
+                "Vendor_BlackForest=Haldor,Hildir_camp=Hildir,BogWitch_Camp=Bog Witch",
+                Synced("Location prefab name (or start of it) = pin label, comma-separated."));
+            SpotOther = Config.Bind("Spotting", "SpotOther", true, Synced("Pin other interesting places."));
+            OtherNames = Config.Bind("Spotting", "OtherNames",
+                "GoblinCamp=Fuling Village,DrakeNest=Drake Nest,TarPit=Tar Pit,Mistlands_Giant=Giant Remains," +
+                "Mistlands_Excavation=Dvergr Excavation,WoodVillage=Abandoned Village,StoneHenge=Stone Circle,NorthVillage=Northern Village",
+                Synced("Location prefab name (or start of it) = pin label, comma-separated."));
+            SpotOres = Config.Bind("Spotting", "SpotOres", true,
+                Synced("Pin ore deposits. Only land someone has already been near has ore in it, so far wild land shows none."));
+            OreNames = Config.Bind("Spotting", "OreNames",
+                "rock4_copper=Copper,rock4_copper_frac=Copper,MineRock_Copper=Copper,MineRock_Tin=Tin,Pickable_Tin=Tin," +
+                "rock3_silver=Silver,rock3_silver_frac=Silver,silvervein=Silver,silvervein_frac=Silver,MineRock_Obsidian=Obsidian," +
+                "mudpile=Iron Scrap,mudpile2=Iron Scrap,mudpile_frac=Iron Scrap,mudpile2_frac=Iron Scrap,mudpile_beacon=Iron Scrap," +
+                "giant_brain=Soft Tissue,giant_brain_frac=Soft Tissue,MineRock_Meteorite=Flametal,FlametalRockstand=Flametal," +
+                "FlametalRockstand_frac=Flametal,goldvein=Gold,goldvein_frac=Gold",
+                Synced("Ore object prefab name (exact) = pin label, comma-separated."));
+
+            UseFood = Config.Bind("Food", "UseFood", true,
+                Synced("Ravens eat one stored meal per trip; better food flies farther and faster. Turn off to ignore food entirely."));
+            Hungry = Config.Bind("Food", "HungryRaven", HungryBehaviour.FlySlowly,
+                Synced("What a raven does with no meals stored: FlySlowly (at HungrySpeed) or Refuse to fly."));
+            HungrySpeed = Config.Bind("Food", "HungrySpeed", 0.5f,
+                Synced("Range and speed multiplier for a hungry raven when HungryRaven = FlySlowly."));
+            MaxMeals = Config.Bind("Food", "MaxMeals", 10, Synced("How many meals a roost can store."));
+            MaxFoodSpeed = Config.Bind("Food", "MaxFoodSpeed", 4f,
+                Synced("Biggest multiplier a meal can give. Cooked food gives 1 + health / 50, e.g. 30 hp = x1.6, 75 hp = x2.5."));
+            RawMeatSpeed = Config.Bind("Food", "RawMeatSpeed", 1.25f, Synced("Multiplier for raw meat."));
+            RawMeatItems = Config.Bind("Food", "RawMeatItems",
+                "RawMeat,DeerMeat,NeckTail,WolfMeat,LoxMeat,SerpentMeat,BugMeat,HareMeat,ChickenMeat,AsksvinMeat,VoltureMeat,BoneMawSerpentMeat",
+                Synced("Comma-separated item prefab names ravens eat raw."));
+
+            PrefabManager.OnVanillaPrefabsAvailable += AddRoostPiece;
+
+            _harmony = new Harmony(ModGuid);
+            _harmony.PatchAll(typeof(Plugin).Assembly);
+
+            Log.LogInfo($"{ModName} {ModVersion} loaded");
+        }
+
+        private void AddRoostPiece()
+        {
+            PrefabManager.OnVanillaPrefabsAvailable -= AddRoostPiece;
+
+            var config = new PieceConfig
+            {
+                Name = "Raven Roost",
+                Description = "Send a raven on a long scouting trip. It maps the land it flies over and pins what it sees.",
+                PieceTable = "Hammer",
+                Category = "Misc",
+                CraftingStation = "piece_workbench",
+                Requirements = new[]
+                {
+                    new RequirementConfig("Wood", 10),
+                    new RequirementConfig("Feathers", 4),
+                    new RequirementConfig("FineWood", 4),
+                },
+            };
+
+            var piece = new CustomPiece(RoostPrefabName, "piece_chest_wood", config);
+            var prefab = piece.PiecePrefab;
+
+            // A small box for things the raven brings back (later versions).
+            var container = prefab.GetComponent<Container>();
+            container.m_name = "Raven Roost";
+            container.m_width = 2;
+            container.m_height = 1;
+
+            prefab.AddComponent<RavenRoost>();
+
+            RavenFlight.Prepare();
+            try
+            {
+                RoostModel.Decorate(prefab);
+            }
+            catch (System.Exception e)
+            {
+                Log.LogError($"Couldn't build the roost model, using the plain chest look: {e}");
+            }
+
+            PieceManager.Instance.AddPiece(piece);
+        }
+
+        private void Update()
+        {
+            ScoutWindow.Tick();
+
+            if (!Scouting.IsActive)
+            {
+                return;
+            }
+            ScoutNet.ServerTick();
+        }
+
+        private void OnDestroy()
+        {
+            _harmony?.UnpatchSelf();
+        }
+    }
+}

@@ -1,0 +1,86 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>RavenScout</AssemblyName>
+    <RootNamespace>RavenScout</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Version>0.1.0</Version>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Edit these two paths if your install or r2modman profile changes. -->
+  <PropertyGroup>
+    <ValheimDir Condition="'$(ValheimDir)' == ''">F:\SteamLibrary\steamapps\common\Valheim</ValheimDir>
+    <ProfileDir Condition="'$(ProfileDir)' == ''">$(APPDATA)\r2modmanPlus-local\Valheim\profiles\Testing</ProfileDir>
+    <ManagedDir>$(ValheimDir)\valheim_Data\Managed</ManagedDir>
+    <BepInExDir>$(ProfileDir)\BepInEx</BepInExDir>
+    <!-- Set to true (dotnet build -p:Deploy=true) to copy the DLL into the profile's plugins folder. -->
+    <Deploy Condition="'$(Deploy)' == ''">false</Deploy>
+    <!-- Local dedicated server for multiplayer testing; deployed to as well when it has BepInEx. -->
+    <ServerDir Condition="'$(ServerDir)' == ''">F:\SteamLibrary\steamapps\common\Valheim dedicated server</ServerDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(BepInExDir)\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExDir)\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Jotunn"><HintPath>$(BepInExDir)\plugins\ValheimModding-Jotunn\Jotunn.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_valheim"><HintPath>$(ManagedDir)\assembly_valheim.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_utils"><HintPath>$(ManagedDir)\assembly_utils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Splatform"><HintPath>$(ManagedDir)\Splatform.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SoftReferenceableAssets"><HintPath>$(ManagedDir)\SoftReferenceableAssets.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_guiutils"><HintPath>$(ManagedDir)\assembly_guiutils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ManagedDir)\UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ManagedDir)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AnimationModule"><HintPath>$(ManagedDir)\UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ManagedDir)\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(ManagedDir)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="netstandard"><HintPath>$(ManagedDir)\netstandard.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(Deploy)' == 'true'">
+    <MakeDir Directories="$(BepInExDir)\plugins\RavenScout" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\RavenScout" />
+    <Message Importance="high" Text="RavenScout deployed to $(BepInExDir)\plugins\RavenScout" />
+  </Target>
+
+  <!-- dotnet build -c Release -p:Package=true  ->  dist\RavenScout-<version>.zip, ready to upload to Thunderstore. -->
+  <Target Name="ThunderstorePackage" AfterTargets="Build" Condition="'$(Package)' == 'true'">
+    <PropertyGroup>
+      <PkgDir>$(MSBuildProjectDirectory)\obj\thunderstore</PkgDir>
+      <DistDir>$(MSBuildProjectDirectory)\dist</DistDir>
+    </PropertyGroup>
+    <ReadLinesFromFile File="thunderstore\manifest.json">
+      <Output TaskParameter="Lines" ItemName="ManifestText" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <ManifestJson>@(ManifestText)</ManifestJson>
+      <ExpectedVersionLine>&quot;version_number&quot;: &quot;$(Version)&quot;</ExpectedVersionLine>
+    </PropertyGroup>
+    <Error Condition="!$(ManifestJson.Contains($(ExpectedVersionLine)))"
+           Text="thunderstore\manifest.json version_number doesn't match the project Version $(Version)." />
+    <RemoveDir Directories="$(PkgDir)" />
+    <MakeDir Directories="$(PkgDir)\plugins;$(DistDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PkgDir)\plugins" />
+    <Copy SourceFiles="thunderstore\manifest.json;thunderstore\README.md;thunderstore\CHANGELOG.md;thunderstore\icon.png" DestinationFolder="$(PkgDir)" />
+    <ZipDirectory SourceDirectory="$(PkgDir)" DestinationFile="$(DistDir)\RavenScout-$(Version).zip" Overwrite="true" />
+    <Message Importance="high" Text="Thunderstore package: $(DistDir)\RavenScout-$(Version).zip" />
+  </Target>
+
+  <Target Name="DeployToServer" AfterTargets="Build" Condition="'$(Deploy)' == 'true' And Exists('$(ServerDir)\BepInEx\core')">
+    <MakeDir Directories="$(ServerDir)\BepInEx\plugins\RavenScout" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ServerDir)\BepInEx\plugins\RavenScout" />
+    <Message Importance="high" Text="RavenScout deployed to $(ServerDir)\BepInEx\plugins\RavenScout" />
+  </Target>
+
+</Project>
