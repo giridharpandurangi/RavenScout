@@ -1,4 +1,4 @@
-# Raven Scout (v0.4.2)
+# Raven Scout (v0.5.0)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -90,8 +90,15 @@ and food spotting start; 0 = every roost.
   `FeatherGuide = false` turns it off for hardcore servers.
 - **Ore**: Valheim only creates ore rocks (and wild plants) when someone has been near that land. In wild land nobody has
   visited yet the raven can't see ore (the report says so). Dungeons, bosses and traders are seen anywhere.
-- **Multiplayer**: the server tracks trips and works out what the raven saw. The findings go to the player
-  who sent the raven; if they're offline, the raven keeps its news until they're back.
+- **Multiplayer**: the server tracks trips and works out what the raven saw, so everyone's findings match.
+  `ShareFindings` (server setting):
+  - **Private** (default): the findings go to the player who sent the raven; if they're offline, the raven
+    keeps its news until they're back.
+  - **Everyone**: every online player gets the map reveal and pins ("Test's raven is back to Home: 6 things
+    spotted"). The server keeps each roost's last 10 shared trips, and players who were offline get them
+    when they join, with one summary message.
+  Live tracking (the moving feather) is always just for the sender. Scout Report items stay in the roost;
+  anyone can **Copy** them there.
 
 All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settings are synced from the server).
 

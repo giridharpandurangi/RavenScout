@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.4.2";
+        public const string ModVersion = "0.5.0";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -66,6 +66,10 @@ namespace RavenScout
         internal enum NoMapBehaviour { Auto, MapOnly, ReportOnly, Both }
 
         internal enum Precision { Vague, Rough, Exact }
+
+        internal enum ShareMode { Private, Everyone }
+
+        internal static ConfigEntry<ShareMode> ShareFindings;
 
         internal static ConfigEntry<NoMapBehaviour> NoMapMode;
         internal static ConfigEntry<Precision> ReportPrecision;
@@ -137,6 +141,10 @@ namespace RavenScout
                 Synced("How exact Scout Reports are. Vague: \"about 300 m\", \"far, over 2 km\", north-east. " +
                        "Rough: to the nearest 100 m. Exact: metres and compass degrees."));
             RenameKey = Config.Bind("Keys", "Rename", KeyCode.N, "While looking at a roost: give it a name (shown on its reports).");
+            ShareFindings = Config.Bind("Report", "ShareFindings", ShareMode.Private,
+                Synced("Who gets a returning raven's map reveal and pins. Private: only the player who sent it. " +
+                       "Everyone: every player; those offline get the latest trips of every roost when they join. " +
+                       "Live tracking (the moving feather) is always just for the sender."));
             ShareReports = Config.Bind("Report", "ShareReports", true,
                 Synced("Show a Copy report button at the roost: anyone can take a copy of its last report, to keep or give to a friend."));
             CopyCost = Config.Bind("Report", "CopyCost", "Feathers:1",

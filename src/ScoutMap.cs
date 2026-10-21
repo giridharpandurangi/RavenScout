@@ -13,26 +13,31 @@ namespace RavenScout
     internal static class ScoutMap
     {
         private const string AppliedKey = "RavenScout_applied";
-        private const int AppliedMemory = 50;
+        private const int AppliedMemory = 300; // enough for every roost's shared history
         private const float SamePinDistance = 50f;
 
         private static readonly MethodInfo s_explore =
             AccessTools.Method(typeof(Minimap), "Explore", new[] { typeof(Vector3), typeof(float) });
         private static readonly FieldInfo s_pins = AccessTools.Field(typeof(Minimap), "m_pins");
 
-        /// <summary>Applies a trip result once per player (results can be sent again after a server restart).</summary>
-        public static void Apply(TripResult result)
+        /// <summary>
+        /// Applies a trip result once per player (results can be sent again after a server restart, or when
+        /// catching up). Quiet: no messages (catching up sums them up instead). Returns true if it was new.
+        /// </summary>
+        public static bool Apply(TripResult result, bool quiet = false)
         {
             var player = Player.m_localPlayer;
             var map = Minimap.instance;
             if (result == null || !player || !map)
             {
-                return;
+                return false;
             }
             if (!MarkApplied(player, result.Key))
             {
-                return;
+                return false;
             }
+            // Someone else's raven (shared findings): a short note, no fuss.
+            bool mine = string.IsNullOrEmpty(result.Sender) || result.Sender == player.GetPlayerName();
 
             string roost = string.IsNullOrEmpty(result.RoostName) ? "the roost" : result.RoostName;
             int count = result.Findings.Count;
@@ -42,12 +47,15 @@ namespace RavenScout
             // their own map off. Either way the map stays untouched.
             if (!result.ApplyMap || Game.m_noMap)
             {
-                player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
-                player.Message(MessageHud.MessageType.Center, result.GaveReport
-                    ? $"Your scouting raven brought a Scout Report to {roost}"
-                    : $"Your scouting raven is back - read its report at {roost}");
+                if (mine && !quiet)
+                {
+                    player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
+                    player.Message(MessageHud.MessageType.Center, result.GaveReport
+                        ? $"Your scouting raven brought a Scout Report to {roost}"
+                        : $"Your scouting raven is back - read its report at {roost}");
+                }
                 Plugin.Log.LogInfo($"Trip result (no map): {result.Report}");
-                return;
+                return true;
             }
 
             // With live tracking most of this is already done; both are safe to repeat.
@@ -57,11 +65,19 @@ namespace RavenScout
                 AddPin(map, f);
             }
 
-            player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
-            player.Message(MessageHud.MessageType.Center, result.GaveReport
-                ? $"Your scouting raven is back - check your map and the Scout Report at {roost}"
-                : "Your scouting raven is back - check your map");
+            if (!quiet && mine)
+            {
+                player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
+                player.Message(MessageHud.MessageType.Center, result.GaveReport
+                    ? $"Your scouting raven is back - check your map and the Scout Report at {roost}"
+                    : "Your scouting raven is back - check your map");
+            }
+            else if (!quiet)
+            {
+                player.Message(MessageHud.MessageType.TopLeft, $"{result.Sender}'s raven is back to {roost}: {spotted} (on your map)");
+            }
             Plugin.Log.LogInfo($"Trip result applied: {result.Report}");
+            return true;
         }
 
         /// <summary>Remembers the trip in the character's save. False if it was already applied.</summary>

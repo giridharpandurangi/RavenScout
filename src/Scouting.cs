@@ -54,6 +54,7 @@ namespace RavenScout
         public bool ApplyMap = true;   // v3: reveal and pin on the sender's map
         public bool GaveReport;        // v3: a Scout Report item waits at the roost
         public string RoostName = "";  // v3
+        public string Sender = "";     // v4: who sent the raven (others see "Test's raven is back")
         public List<Finding> Findings = new List<Finding>();
 
         /// <summary>The Scout Report text (server only, not sent).</summary>
@@ -82,10 +83,12 @@ namespace RavenScout
         public const string LastTextKey = "ravenscout_lasttext";
         public const string LastDayKey = "ravenscout_lastday";
         public const string LastGuideKey = "ravenscout_lastguide";
+        public const string SharedKey = "ravenscout_shared";
+        public const int SharedHistory = 10; // trips per roost kept for players who join later
         private const int PendingVersionMarker = -2; // v0.2.0 saved the count first; later saves start with this
         public const string DefaultRoostName = "Raven Roost";
         private const int TripVersion = 3;
-        private const int ResultVersion = 3;
+        private const int ResultVersion = 4;
 
         /// <summary>Ravens turn back at the edge of the world.</summary>
         private const float WorldRadius = 10000f;
@@ -196,6 +199,42 @@ namespace RavenScout
                 pkg.Write(r.Guide ?? "");
             }
             zdo.Set(PendingKey, pkg.GetArray());
+        }
+
+        /// <summary>The roost's latest shared trip results, oldest first (ShareFindings = Everyone).</summary>
+        public static List<byte[]> ReadShared(ZDO zdo)
+        {
+            var list = new List<byte[]>();
+            byte[] data = zdo?.GetByteArray(SharedKey);
+            if (data == null || data.Length == 0)
+            {
+                return list;
+            }
+            var pkg = new ZPackage(data);
+            int count = pkg.ReadInt();
+            for (int i = 0; i < count; i++)
+            {
+                list.Add(pkg.ReadByteArray());
+            }
+            return list;
+        }
+
+        /// <summary>Adds a trip result, keeping only the latest <see cref="SharedHistory"/>.</summary>
+        public static void AddShared(ZDO zdo, byte[] result)
+        {
+            var list = ReadShared(zdo);
+            list.Add(result);
+            if (list.Count > SharedHistory)
+            {
+                list.RemoveRange(0, list.Count - SharedHistory);
+            }
+            var pkg = new ZPackage();
+            pkg.Write(list.Count);
+            foreach (var r in list)
+            {
+                pkg.Write(r);
+            }
+            zdo.Set(SharedKey, pkg.GetArray());
         }
 
         /// <summary>Is this world played without a map? (The world setting; a player can also turn theirs off, see Game.m_noMap.)</summary>
@@ -764,6 +803,7 @@ namespace RavenScout
             pkg.Write(r.ApplyMap);
             pkg.Write(r.GaveReport);
             pkg.Write(r.RoostName ?? "");
+            pkg.Write(r.Sender ?? "");
             pkg.Write(r.Findings.Count);
             foreach (var f in r.Findings)
             {
@@ -794,6 +834,7 @@ namespace RavenScout
                 ApplyMap = pkg.ReadBool(),
                 GaveReport = pkg.ReadBool(),
                 RoostName = pkg.ReadString(),
+                Sender = pkg.ReadString(),
             };
             int count = pkg.ReadInt();
             for (int i = 0; i < count; i++)

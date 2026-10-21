@@ -6,9 +6,10 @@ namespace RavenScout
     /// <summary>
     /// Multiplayer plumbing. The server tracks trips: only it has the whole world's location list and objects,
     /// so it works out what the raven sees (at take-off for live tracking, and again when it's back), sends
-    /// that to the player who sent it, and
-    /// marks the trip as reported on the roost (through the roost's owner, as only an object's owner should
-    /// change it). In single player the game is its own server, so the same code simply runs locally.
+    /// that to the player who sent it (or everyone, with ShareFindings = Everyone), and marks the trip as
+    /// reported on the roost (through the roost's owner, as only an object's owner should change it). Shared
+    /// trips are kept on the roost so players who join later catch up. In single player the game is its own
+    /// server, so the same code simply runs locally.
     /// </summary>
     internal static class ScoutNet
     {
@@ -18,6 +19,7 @@ namespace RavenScout
         private const string RpcMarkReported = "RavenScout_MarkReported";
         private const string RpcServerMark = "RavenScout_ServerMark";
         private const string RpcTakeOff = "RavenScout_TakeOff";
+        private const string RpcCatchUp = "RavenScout_CatchUp";
 
         private const float TakeOffViewDistance = 150f;
         private const float RetryMarkSeconds = 20f;
@@ -31,8 +33,12 @@ namespace RavenScout
         private static readonly HashSet<string> s_failed = new HashSet<string>();
         /// <summary>Which of the sender's connections got each trip's live plan (sent again if they reconnect).</summary>
         private static readonly Dictionary<string, long> s_planSent = new Dictionary<string, long>();
+        /// <summary>Connections that already got the shared trips they missed.</summary>
+        private static readonly HashSet<long> s_caughtUp = new HashSet<long>();
         private static bool s_scannedWorld;
         private static float s_nextTick;
+
+        private static bool Sharing => Plugin.ShareFindings.Value == Plugin.ShareMode.Everyone;
 
         /// <summary>Called when a world starts (Game.Start), once ZRoutedRpc exists.</summary>
         public static void Register()
@@ -46,6 +52,7 @@ namespace RavenScout
             s_reported.Clear();
             s_failed.Clear();
             s_planSent.Clear();
+            s_caughtUp.Clear();
             s_scannedWorld = false;
             ScoutLive.Reset();
 
@@ -55,6 +62,7 @@ namespace RavenScout
             rpc.Register<ZDOID, ZPackage>(RpcMarkReported, OnMarkReported);
             rpc.Register<ZDOID, ZPackage>(RpcServerMark, OnServerMark);
             rpc.Register<Vector3, Vector3, ZPackage>(RpcTakeOff, OnTakeOff);
+            rpc.Register<ZPackage>(RpcCatchUp, OnCatchUp);
         }
 
         // ------------------------------------------------------------ trips (server)
@@ -93,6 +101,11 @@ namespace RavenScout
                 }
             }
 
+            if (Sharing)
+            {
+                CatchUpNewPlayers();
+            }
+
             if (s_watched.Count == 0)
             {
                 return;
@@ -124,8 +137,9 @@ namespace RavenScout
                 {
                     continue; // waiting for the roost's owner to save it
                 }
-                // The findings go to the sender; if they're offline, the raven waits with its news until they're back.
-                if (PlayerConnection(trip.Sender) == 0L)
+                // Private: the findings go to the sender; if they're offline, the raven waits with its news until
+                // they're back. Shared: everyone online gets them now, and the rest catch up when they join.
+                if (!Sharing && PlayerConnection(trip.Sender) == 0L)
                 {
                     continue;
                 }
@@ -136,13 +150,27 @@ namespace RavenScout
                 {
                     continue;
                 }
-                result.ApplyMap = MapAllowed(trip);
+                // Shared, the sender's own "map off" choice is theirs alone (their game skips the map anyway).
+                result.ApplyMap = Sharing ? SharedMapAllowed : MapAllowed(trip);
                 result.GaveReport = WantsReport(trip);
                 result.RoostName = Scouting.RoostName(zdo);
+                result.Sender = trip.Sender;
+                bool shared = Sharing && result.ApplyMap;
                 Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings, " +
-                                   $"map {(result.ApplyMap ? "yes" : "no")}, report item {(result.GaveReport ? "yes" : "no")})");
-                Send(trip.Sender, RpcResult, result);
-                MarkReported(zdo, key, result.Report, result.ReportText, result.GaveReport, result.Guide);
+                                   $"map {(result.ApplyMap ? "yes" : "no")}, report item {(result.GaveReport ? "yes" : "no")}, " +
+                                   $"{(shared ? "shared with everyone" : "private")})");
+                byte[] sharedData = null;
+                if (shared)
+                {
+                    var pkg = Scouting.Serialize(result);
+                    sharedData = pkg.GetArray();
+                    ZRoutedRpc.instance.InvokeRoutedRPC(ZRoutedRpc.Everybody, RpcResult, pkg); // includes this game
+                }
+                else
+                {
+                    Send(trip.Sender, RpcResult, result);
+                }
+                MarkReported(zdo, key, result.Report, result.ReportText, result.GaveReport, result.Guide, sharedData);
             }
         }
 
@@ -160,6 +188,61 @@ namespace RavenScout
                 return false;
             }
             return !(mode == Plugin.NoMapBehaviour.Auto && trip.SenderNoMap);
+        }
+
+        /// <summary>With shared findings: may returning ravens change players' maps at all?</summary>
+        private static bool SharedMapAllowed =>
+            !Scouting.WorldHasNoMap && Plugin.NoMapMode.Value != Plugin.NoMapBehaviour.ReportOnly;
+
+        // ------------------------------------------------------------ catching up (shared findings)
+
+        /// <summary>Sends each newly joined player the shared trips of every roost; their game skips what it already has.</summary>
+        private static void CatchUpNewPlayers()
+        {
+            foreach (var peer in ZNet.instance.GetPeers())
+            {
+                // Wait until their character exists, so their game has a map to put the trips on.
+                if (string.IsNullOrEmpty(peer.m_playerName) || peer.m_characterID.IsNone() || !s_caughtUp.Add(peer.m_uid))
+                {
+                    continue;
+                }
+                var trips = new List<byte[]>();
+                foreach (var zdo in Scouting.GetAllRoostZdos())
+                {
+                    trips.AddRange(Scouting.ReadShared(zdo));
+                }
+                if (trips.Count == 0)
+                {
+                    continue;
+                }
+                var pkg = new ZPackage();
+                pkg.Write(trips.Count);
+                foreach (var t in trips)
+                {
+                    pkg.Write(t);
+                }
+                Plugin.Log.LogInfo($"Sending {peer.m_playerName} {trips.Count} shared raven trip(s) to catch up on");
+                ZRoutedRpc.instance.InvokeRoutedRPC(peer.m_uid, RpcCatchUp, pkg);
+            }
+        }
+
+        private static void OnCatchUp(long sender, ZPackage pkg)
+        {
+            int count = pkg.ReadInt();
+            int applied = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var result = Scouting.Deserialize(new ZPackage(pkg.ReadByteArray()));
+                if (result != null && ScoutMap.Apply(result, quiet: true))
+                {
+                    applied++;
+                }
+            }
+            if (applied > 0 && Player.m_localPlayer)
+            {
+                Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft,
+                    $"Ravens brought news while you were away: {applied} trip{(applied == 1 ? "" : "s")} on your map");
+            }
         }
 
         /// <summary>Does this trip bring a Scout Report item? Always when the map can't show what the raven saw.</summary>
@@ -272,7 +355,8 @@ namespace RavenScout
         /// <paramref name="reportText"/> is the Scout Report's text: kept as the roost's last report (to copy),
         /// and turned into an item when <paramref name="giveItem"/>.
         /// </summary>
-        private static void MarkReported(ZDO zdo, string key, string report, string reportText, bool giveItem, string guide)
+        private static void MarkReported(ZDO zdo, string key, string report, string reportText, bool giveItem, string guide,
+            byte[] shared)
         {
             var pkg = new ZPackage();
             pkg.Write(key);
@@ -280,6 +364,7 @@ namespace RavenScout
             pkg.Write(reportText ?? "");
             pkg.Write(giveItem);
             pkg.Write(guide ?? "");
+            pkg.Write(shared ?? new byte[0]);
             long owner = zdo.GetOwner();
             if (owner != 0 && owner != ZDOMan.GetSessionID() && ZNet.instance.GetPeer(owner) != null)
             {
@@ -323,6 +408,7 @@ namespace RavenScout
             string reportText = pkg.ReadString();
             bool giveItem = pkg.ReadBool();
             string guide = pkg.ReadString();
+            byte[] shared = pkg.ReadByteArray();
 
             var trip = Scouting.ReadTrip(zdo);
             if (trip == null || trip.Key(zdo.m_uid) != key || trip.Reported)
@@ -336,6 +422,10 @@ namespace RavenScout
             zdo.Set(Scouting.LastTextKey, reportText ?? "");
             zdo.Set(Scouting.LastDayKey, day);
             zdo.Set(Scouting.LastGuideKey, guide ?? "");
+            if (shared != null && shared.Length > 0)
+            {
+                Scouting.AddShared(zdo, shared); // for players who join later
+            }
             if (giveItem && !string.IsNullOrEmpty(reportText))
             {
                 // The roost's owner turns it into an item in the roost's box (see RavenRoost.DeliverReports).
