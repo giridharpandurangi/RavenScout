@@ -5,7 +5,8 @@ namespace RavenScout
 {
     /// <summary>
     /// Multiplayer plumbing. The server tracks trips: only it has the whole world's location list and objects,
-    /// so when a raven is due back it works out what the raven saw, sends that to the player who sent it, and
+    /// so it works out what the raven sees (at take-off for live tracking, and again when it's back), sends
+    /// that to the player who sent it, and
     /// marks the trip as reported on the roost (through the roost's owner, as only an object's owner should
     /// change it). In single player the game is its own server, so the same code simply runs locally.
     /// </summary>
@@ -13,6 +14,7 @@ namespace RavenScout
     {
         private const string RpcTripStarted = "RavenScout_TripStarted";
         private const string RpcResult = "RavenScout_Result";
+        private const string RpcPlan = "RavenScout_Plan";
         private const string RpcMarkReported = "RavenScout_MarkReported";
         private const string RpcServerMark = "RavenScout_ServerMark";
         private const string RpcTakeOff = "RavenScout_TakeOff";
@@ -27,6 +29,8 @@ namespace RavenScout
         /// <summary>Trips already reported this session, with when, in case the roost's owner never saved it.</summary>
         private static readonly Dictionary<string, float> s_reported = new Dictionary<string, float>();
         private static readonly HashSet<string> s_failed = new HashSet<string>();
+        /// <summary>Which of the sender's connections got each trip's live plan (sent again if they reconnect).</summary>
+        private static readonly Dictionary<string, long> s_planSent = new Dictionary<string, long>();
         private static bool s_scannedWorld;
         private static float s_nextTick;
 
@@ -41,10 +45,13 @@ namespace RavenScout
             s_watched.Clear();
             s_reported.Clear();
             s_failed.Clear();
+            s_planSent.Clear();
             s_scannedWorld = false;
+            ScoutLive.Reset();
 
             rpc.Register<ZDOID>(RpcTripStarted, OnTripStarted);
             rpc.Register<ZPackage>(RpcResult, OnResult);
+            rpc.Register<ZPackage>(RpcPlan, OnPlan);
             rpc.Register<ZDOID, string, string>(RpcMarkReported, OnMarkReported);
             rpc.Register<ZDOID, string, string>(RpcServerMark, OnServerMark);
             rpc.Register<Vector3, Vector3, ZPackage>(RpcTakeOff, OnTakeOff);
@@ -63,7 +70,7 @@ namespace RavenScout
             }
         }
 
-        /// <summary>Server housekeeping, every second: report ravens that are back.</summary>
+        /// <summary>Server housekeeping, every second: send live plans for ravens in the air, report ravens that are back.</summary>
         public static void ServerTick()
         {
             if (!Scouting.IsServer || Time.time < s_nextTick)
@@ -104,78 +111,131 @@ namespace RavenScout
                     }
                     continue;
                 }
+                string key = trip.Key(id);
                 if (trip.IsAway(now))
                 {
+                    if (Plugin.LiveTracking.Value)
+                    {
+                        SendPlanIfNeeded(trip, key);
+                    }
                     continue;
                 }
-                string key = trip.Key(id);
                 if (s_reported.TryGetValue(key, out float at) && Time.time - at < RetryMarkSeconds)
                 {
                     continue; // waiting for the roost's owner to save it
                 }
                 // The findings go to the sender; if they're offline, the raven waits with its news until they're back.
-                if (!IsOnline(trip.Sender))
+                if (PlayerConnection(trip.Sender) == 0L)
                 {
                     continue;
                 }
 
-                TripResult result;
-                try
+                var result = TrySurvey(trip, key);
+                s_reported[key] = Time.time; // on failure: try again later
+                if (result == null)
                 {
-                    result = Scouting.Survey(trip, key);
-                }
-                catch (System.Exception e)
-                {
-                    // Try again later, but only fill the log once per trip.
-                    s_reported[key] = Time.time;
-                    if (s_failed.Add(key))
-                    {
-                        Plugin.Log.LogError($"Couldn't work out what the raven saw: {e}");
-                    }
                     continue;
                 }
                 Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings)");
-                SendResult(trip.Sender, result);
-                s_reported[key] = Time.time;
+                Send(trip.Sender, RpcResult, result);
                 MarkReported(zdo, key, result.Report);
             }
         }
 
-        private static bool IsOnline(string playerName)
+        /// <summary>
+        /// Live tracking: the world hardly changes during a flight, so the server works out what the raven will
+        /// see at take-off and the sender's game plays it out along the flight. Sent again if they reconnect.
+        /// </summary>
+        private static void SendPlanIfNeeded(ScoutTrip trip, string key)
+        {
+            long connection = PlayerConnection(trip.Sender);
+            if (connection == 0L || (s_planSent.TryGetValue(key, out long sentTo) && sentTo == connection))
+            {
+                return;
+            }
+            s_planSent[key] = connection;
+            var plan = TrySurvey(trip, key);
+            if (plan != null)
+            {
+                Send(trip.Sender, RpcPlan, plan);
+            }
+        }
+
+        private static TripResult TrySurvey(ScoutTrip trip, string key)
+        {
+            try
+            {
+                return Scouting.Survey(trip, key);
+            }
+            catch (System.Exception e)
+            {
+                // Only fill the log once per trip.
+                if (s_failed.Add(key))
+                {
+                    Plugin.Log.LogError($"Couldn't work out what the raven saw: {e}");
+                }
+                return null;
+            }
+        }
+
+        /// <summary>The named player's current connection (this game's own for the host's player), or 0 if they're offline.</summary>
+        private static long PlayerConnection(string playerName)
         {
             if (Player.m_localPlayer && Player.m_localPlayer.GetPlayerName() == playerName)
             {
-                return true;
+                return ZDOMan.GetSessionID();
             }
             foreach (var peer in ZNet.instance.GetPeers())
             {
                 if (peer.m_playerName == playerName)
                 {
-                    return true;
+                    return peer.m_uid;
                 }
             }
-            return false;
+            return 0L;
         }
 
-        private static void SendResult(string playerName, TripResult result)
+        private static void Send(string playerName, string rpc, TripResult result)
         {
             // The host's own player isn't in the peer list.
             if (Player.m_localPlayer && Player.m_localPlayer.GetPlayerName() == playerName)
             {
-                ScoutMap.Apply(result);
+                if (rpc == RpcPlan)
+                {
+                    ScoutLive.Track(result);
+                }
+                else
+                {
+                    ScoutLive.Finish(result.Key);
+                    ScoutMap.Apply(result);
+                }
             }
             foreach (var peer in ZNet.instance.GetPeers())
             {
                 if (peer.m_playerName == playerName)
                 {
-                    ZRoutedRpc.instance.InvokeRoutedRPC(peer.m_uid, RpcResult, Scouting.Serialize(result));
+                    ZRoutedRpc.instance.InvokeRoutedRPC(peer.m_uid, rpc, Scouting.Serialize(result));
                 }
+            }
+        }
+
+        private static void OnPlan(long sender, ZPackage pkg)
+        {
+            var plan = Scouting.Deserialize(pkg);
+            if (plan != null)
+            {
+                ScoutLive.Track(plan);
             }
         }
 
         private static void OnResult(long sender, ZPackage pkg)
         {
-            ScoutMap.Apply(Scouting.Deserialize(pkg));
+            var result = Scouting.Deserialize(pkg);
+            if (result != null)
+            {
+                ScoutLive.Finish(result.Key);
+                ScoutMap.Apply(result);
+            }
         }
 
         /// <summary>

@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.1.1";
+        public const string ModVersion = "0.1.2";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -43,6 +43,13 @@ namespace RavenScout
         internal static ConfigEntry<string> OtherNames;
         internal static ConfigEntry<bool> SpotOres;
         internal static ConfigEntry<string> OreNames;
+        internal static ConfigEntry<bool> SpotFood;
+        internal static ConfigEntry<string> FoodNames;
+
+        // Live tracking
+        internal static ConfigEntry<bool> LiveTracking;
+        internal static ConfigEntry<bool> ShowRavenOnMap;
+        internal static ConfigEntry<bool> LiveMessages;
 
         // Food
         internal enum HungryBehaviour { FlySlowly, Refuse }
@@ -108,7 +115,26 @@ namespace RavenScout
                 "mudpile=Iron Scrap,mudpile2=Iron Scrap,mudpile_frac=Iron Scrap,mudpile2_frac=Iron Scrap,mudpile_beacon=Iron Scrap," +
                 "giant_brain=Soft Tissue,giant_brain_frac=Soft Tissue,MineRock_Meteorite=Flametal,FlametalRockstand=Flametal," +
                 "FlametalRockstand_frac=Flametal,goldvein=Gold,goldvein_frac=Gold",
-                Synced("Ore object prefab name (exact) = pin label, comma-separated."));
+                Synced("Ore object prefab name (exact) = pin label, comma-separated. Add :N to the label to need at least N close together."));
+            SpotFood = Config.Bind("Spotting", "SpotFood", true,
+                Synced("Pin wild food: berries, mushrooms, thistle, wild seeds. Like ore, only in land someone has already been near. " +
+                       "Picked plants and plants next to anything player-built (farms) are skipped."));
+            FoodNames = Config.Bind("Spotting", "FoodNames",
+                "RaspberryBush=Raspberries:3,BlueberryBush=Blueberries:3,CloudberryBush=Cloudberries:3,LingonberryBush=Lingonberries:3," +
+                "Pickable_Mushroom=Mushrooms:2,Pickable_Mushroom_yellow=Yellow Mushrooms,Pickable_Mushroom_blue=Blue Mushrooms," +
+                "Pickable_Mushroom_Magecap=Magecap,Pickable_Mushroom_JotunPuffs=Jotun Puffs,Pickable_SmokePuff=Smoke Puffs," +
+                "Pickable_Thistle=Thistle:2,Pickable_Dandelion=Dandelions:3,Pickable_SeedCarrot=Carrot Seeds,Pickable_SeedTurnip=Turnip Seeds," +
+                "Pickable_SeedOnion=Onion Seeds,Pickable_Barley_Wild=Wild Barley,Pickable_Flax_Wild=Wild Flax,Pickable_Fiddlehead=Fiddlehead," +
+                "Pickable_RoyalJelly=Royal Jelly",
+                Synced("Plant prefab name (exact) = pin label:N, comma-separated. N = how many must grow close together (within 60 m) for a pin; " +
+                       "it stops single raspberry bushes from covering the map. Remove an entry to never pin it."));
+
+            LiveTracking = Config.Bind("Live", "LiveTracking", true,
+                Synced("Reveal the map and add pins while the raven flies, instead of all at once when it returns."));
+            ShowRavenOnMap = Config.Bind("Live", "ShowRavenOnMap", true,
+                "Show your flying raven as a feather on the map and minimap (your own choice, not synced).");
+            LiveMessages = Config.Bind("Live", "LiveMessages", true,
+                "Show a top-left message when your flying raven spots something (your own choice, not synced).");
 
             UseFood = Config.Bind("Food", "UseFood", true,
                 Synced("Ravens eat one stored meal per trip; better food flies farther and faster. Turn off to ignore food entirely."));
@@ -184,6 +210,7 @@ namespace RavenScout
                 return;
             }
             ScoutNet.ServerTick();
+            ScoutLive.Tick();
         }
 
         private void OnDestroy()

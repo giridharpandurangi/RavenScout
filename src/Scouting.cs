@@ -28,7 +28,7 @@ namespace RavenScout
     /// <summary>Something the raven saw: a place or an ore deposit.</summary>
     internal class Finding
     {
-        public enum Kind { Dungeon, Boss, Trader, Other, Ore }
+        public enum Kind { Dungeon, Boss, Trader, Other, Ore, Food } // sent as numbers: only add at the end
 
         public Kind Type;
         public string Label;
@@ -36,10 +36,15 @@ namespace RavenScout
         public int Count = 1; // ore deposits close together are one pin
     }
 
-    /// <summary>What the server sends to the player whose raven came back.</summary>
+    /// <summary>
+    /// What the server sends to the player who sent the raven: at take-off for live tracking (the plan), and
+    /// again when the raven is back.
+    /// </summary>
     internal class TripResult
     {
         public string Key;
+        public double SentAt;
+        public double ReturnAt;
         public Vector3 From;
         public Vector3 Target;
         public float RevealRadius;
@@ -53,7 +58,7 @@ namespace RavenScout
         public const string TripKey = "ravenscout_trip";
         public const string ReportKey = "ravenscout_report";
         private const int TripVersion = 1;
-        private const int ResultVersion = 1;
+        private const int ResultVersion = 2;
 
         /// <summary>Ravens turn back at the edge of the world.</summary>
         private const float WorldRadius = 10000f;
@@ -184,18 +189,20 @@ namespace RavenScout
 
         private static readonly System.Reflection.FieldInfo s_objectsBySector = AccessTools.Field(typeof(ZDOMan), "m_objectsBySector");
         private static readonly HashSet<string> s_reportedUnknownLocations = new HashSet<string>();
-        private static bool s_checkedOreNames;
+        private static readonly HashSet<string> s_checkedNames = new HashSet<string>();
 
         /// <summary>
         /// Works out what a raven flying from <paramref name="trip"/>'s roost to its target and back has seen.
         /// Places come from the world's location list, which covers the whole world even where nobody has been;
-        /// ore only exists where the land has been loaded before.
+        /// ore and food plants only exist where the land has been loaded before.
         /// </summary>
         public static TripResult Survey(ScoutTrip trip, string key)
         {
             var result = new TripResult
             {
                 Key = key,
+                SentAt = trip.SentAt,
+                ReturnAt = trip.ReturnAt,
                 From = trip.From,
                 Target = trip.Target,
                 RevealRadius = Plugin.RevealRadius.Value,
@@ -203,11 +210,7 @@ namespace RavenScout
             float radius = Mathf.Max(0f, Plugin.SpotRadius.Value);
 
             FindPlaces(trip, radius, result.Findings);
-            bool wildLand = false;
-            if (Plugin.SpotOres.Value)
-            {
-                wildLand = FindOres(trip, radius, result.Findings);
-            }
+            bool wildLand = FindObjects(trip, radius, result.Findings);
             result.Report = Report(trip, result.Findings, wildLand);
             return result;
         }
@@ -286,35 +289,48 @@ namespace RavenScout
             return label != null;
         }
 
-        /// <summary>Adds ore deposits near the route. Returns true if part of the route is land nobody has loaded yet.</summary>
-        private static bool FindOres(ScoutTrip trip, float radius, List<Finding> findings)
+        /// <summary>What to look for among world objects: a prefab's pin label, kind and smallest patch worth a pin.</summary>
+        private class ObjectRule
         {
-            var ores = ParseNames(Plugin.OreNames.Value);
-            if (ores.Count == 0)
+            public Finding.Kind Kind;
+            public string Label;
+            public int MinCount;
+        }
+
+        /// <summary>
+        /// Adds ore deposits and food plants near the route. Returns true if part of the route is land nobody
+        /// has loaded yet: Valheim only creates those objects once someone has been near.
+        /// </summary>
+        private static bool FindObjects(ScoutTrip trip, float radius, List<Finding> findings)
+        {
+            var rules = new Dictionary<int, ObjectRule>();
+            if (Plugin.SpotOres.Value)
+            {
+                AddObjectRules(rules, Finding.Kind.Ore, Plugin.OreNames.Value, "OreNames");
+            }
+            if (Plugin.SpotFood.Value)
+            {
+                AddObjectRules(rules, Finding.Kind.Food, Plugin.FoodNames.Value, "FoodNames");
+            }
+            if (rules.Count == 0)
             {
                 return false;
             }
-            CheckOreNames(ores);
-            var byHash = new Dictionary<int, string>();
-            foreach (var pair in ores)
-            {
-                byHash[pair.Key.GetStableHashCode()] = pair.Value;
-            }
 
-            // Only look in the 64 m sectors the route passes over, not the whole world.
-            var sectors = s_objectsBySector?.GetValue(ZDOMan.instance) as List<ZDO>[];
             var found = new List<Finding>();
+            var builtSectors = new HashSet<uint>();
             bool wildLand = false;
+            var sectors = s_objectsBySector?.GetValue(ZDOMan.instance) as List<ZDO>[];
             if (sectors != null)
             {
+                // Only look in the 64 m sectors the route passes over, not the whole world.
                 var visited = new HashSet<uint>();
                 float length = DistanceXZ(trip.From, trip.Target);
                 int steps = Mathf.Max(1, Mathf.CeilToInt(length / 32f));
                 int reach = Mathf.CeilToInt(radius / 64f) + 1;
                 for (int s = 0; s <= steps; s++)
                 {
-                    var p = Vector3.Lerp(trip.From, trip.Target, s / (float)steps);
-                    var zone = ZoneSystem.GetZone(p);
+                    var zone = ZoneSystem.GetZone(Vector3.Lerp(trip.From, trip.Target, s / (float)steps));
                     for (int dy = -reach; dy <= reach; dy++)
                     {
                         for (int dx = -reach; dx <= reach; dx++)
@@ -335,11 +351,11 @@ namespace RavenScout
                             }
                             foreach (var zdo in list)
                             {
-                                if (byHash.TryGetValue(zdo.GetPrefab(), out var label) &&
-                                    DistanceToRoute(zdo.GetPosition(), trip.From, trip.Target) <= radius)
+                                if (zdo.GetLong(ZDOVars.s_creator) != 0L)
                                 {
-                                    found.Add(new Finding { Type = Finding.Kind.Ore, Label = label, Position = zdo.GetPosition() });
+                                    builtSectors.Add(index); // someone built here: crops in it are a farm
                                 }
+                                AddObject(zdo, rules, trip, radius, found);
                             }
                         }
                     }
@@ -347,57 +363,123 @@ namespace RavenScout
             }
             else
             {
-                Plugin.Log.LogWarning("Couldn't read the world's object list; searching every ore object instead.");
-                foreach (var pair in ores)
+                Plugin.Log.LogWarning("Couldn't read the world's object list; searching every ore and plant instead.");
+                foreach (var name in AllNames())
                 {
                     var list = new List<ZDO>();
                     int index = 0;
-                    while (!ZDOMan.instance.GetAllZDOsWithPrefabIterative(pair.Key, list, ref index))
+                    while (!ZDOMan.instance.GetAllZDOsWithPrefabIterative(name, list, ref index))
                     {
                     }
                     foreach (var zdo in list)
                     {
-                        if (DistanceToRoute(zdo.GetPosition(), trip.From, trip.Target) <= radius)
-                        {
-                            found.Add(new Finding { Type = Finding.Kind.Ore, Label = pair.Value, Position = zdo.GetPosition() });
-                        }
+                        AddObject(zdo, rules, trip, radius, found);
                     }
                 }
             }
 
-            findings.AddRange(Cluster(found, 40f));
+            // Food next to anything player-built is probably someone's farm, not wild food.
+            found.RemoveAll(f => f.Type == Finding.Kind.Food && NearBuilt(f.Position, builtSectors));
+
+            foreach (var cluster in Cluster(found, ClusterDistance))
+            {
+                var rule = rules.Values.FirstOrDefault(r => r.Kind == cluster.Type && r.Label == cluster.Label);
+                if (rule == null || cluster.Count >= rule.MinCount)
+                {
+                    findings.Add(cluster);
+                }
+            }
             return wildLand;
         }
 
-        /// <summary>Deposits of the same ore within <paramref name="distance"/> of each other become one pin.</summary>
-        private static List<Finding> Cluster(List<Finding> ores, float distance)
+        private const float ClusterDistance = 60f;
+
+        private static void AddObject(ZDO zdo, Dictionary<int, ObjectRule> rules, ScoutTrip trip, float radius, List<Finding> found)
+        {
+            if (!rules.TryGetValue(zdo.GetPrefab(), out var rule) ||
+                DistanceToRoute(zdo.GetPosition(), trip.From, trip.Target) > radius)
+            {
+                return;
+            }
+            // Picked bushes and mushrooms are bare until they grow back.
+            if (rule.Kind == Finding.Kind.Food && zdo.GetBool(ZDOVars.s_picked))
+            {
+                return;
+            }
+            found.Add(new Finding { Type = rule.Kind, Label = rule.Label, Position = zdo.GetPosition() });
+        }
+
+        private static bool NearBuilt(Vector3 position, HashSet<uint> builtSectors)
+        {
+            if (builtSectors.Count == 0)
+            {
+                return false;
+            }
+            var zone = ZoneSystem.GetZone(position);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (builtSectors.Contains(ZoneSystem.SectorToIndex(zone.x + dx, zone.y + dy).Sector))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static IEnumerable<string> AllNames() =>
+            ParseNames(Plugin.OreNames.Value).Keys.Concat(ParseNames(Plugin.FoodNames.Value).Keys).Distinct();
+
+        /// <summary>Reads "Prefab=Label:MinCount" entries; MinCount is optional (default 1).</summary>
+        private static void AddObjectRules(Dictionary<int, ObjectRule> rules, Finding.Kind kind, string text, string setting)
+        {
+            var names = ParseNames(text);
+            foreach (var pair in names)
+            {
+                string label = pair.Value;
+                int min = 1;
+                int colon = label.LastIndexOf(':');
+                if (colon > 0 && int.TryParse(label.Substring(colon + 1).Trim(), out int parsed))
+                {
+                    label = label.Substring(0, colon).Trim();
+                    min = Mathf.Max(1, parsed);
+                }
+                rules[pair.Key.GetStableHashCode()] = new ObjectRule { Kind = kind, Label = label, MinCount = min };
+            }
+            CheckNames(names.Keys, setting);
+        }
+
+        /// <summary>Things of the same kind within <paramref name="distance"/> of each other become one pin.</summary>
+        private static List<Finding> Cluster(List<Finding> things, float distance)
         {
             var clusters = new List<Finding>();
-            foreach (var ore in ores)
+            foreach (var thing in things)
             {
-                var near = clusters.FirstOrDefault(c => c.Label == ore.Label && DistanceXZ(c.Position, ore.Position) < distance);
+                var near = clusters.FirstOrDefault(c => c.Label == thing.Label && DistanceXZ(c.Position, thing.Position) < distance);
                 if (near == null)
                 {
-                    clusters.Add(ore);
+                    clusters.Add(thing);
                     continue;
                 }
-                near.Position = (near.Position * near.Count + ore.Position) / (near.Count + 1);
+                near.Position = (near.Position * near.Count + thing.Position) / (near.Count + 1);
                 near.Count++;
             }
             return clusters;
         }
 
-        private static void CheckOreNames(Dictionary<string, string> ores)
+        /// <summary>Logs once which listed prefab names this game doesn't have, so the config can be fixed.</summary>
+        private static void CheckNames(IEnumerable<string> names, string setting)
         {
-            if (s_checkedOreNames || !ZNetScene.instance)
+            if (!ZNetScene.instance || !s_checkedNames.Add(setting))
             {
                 return;
             }
-            s_checkedOreNames = true;
-            var missing = ores.Keys.Where(n => !ZNetScene.instance.GetPrefab(n)).ToList();
+            var missing = names.Where(n => !ZNetScene.instance.GetPrefab(n)).ToList();
             if (missing.Count > 0)
             {
-                Plugin.Log.LogWarning($"OreNames lists objects this game doesn't have: {string.Join(", ", missing)}");
+                Plugin.Log.LogWarning($"{setting} lists objects this game doesn't have: {string.Join(", ", missing)}");
             }
         }
 
@@ -432,32 +514,36 @@ namespace RavenScout
             }
             sb.Append('.');
 
-            var places = findings.Where(f => f.Type != Finding.Kind.Ore)
-                .GroupBy(f => f.Label).Select(g => g.Count() == 1 ? g.Key : $"{g.Count()} x {g.Key}").ToList();
-            var ores = findings.Where(f => f.Type == Finding.Kind.Ore)
-                .GroupBy(f => f.Label).Select(g => g.Count() == 1 ? g.Key : $"{g.Count()} x {g.Key}").ToList();
+            var places = Summary(findings.Where(f => f.Type != Finding.Kind.Ore && f.Type != Finding.Kind.Food));
+            var ores = Summary(findings.Where(f => f.Type == Finding.Kind.Ore));
+            var food = Summary(findings.Where(f => f.Type == Finding.Kind.Food));
 
-            if (places.Count == 0 && ores.Count == 0)
+            if (places.Count == 0 && ores.Count == 0 && food.Count == 0)
             {
                 sb.Append(" Nothing special spotted.");
             }
-            else
+            if (places.Count > 0)
             {
-                if (places.Count > 0)
-                {
-                    sb.Append($" Spotted: {string.Join(", ", places)}.");
-                }
-                if (ores.Count > 0)
-                {
-                    sb.Append($" Ore: {string.Join(", ", ores)}.");
-                }
+                sb.Append($" Spotted: {string.Join(", ", places)}.");
             }
-            if (wildLand && Plugin.SpotOres.Value)
+            if (ores.Count > 0)
             {
-                sb.Append(" Some land was wild and unvisited, so its ore can't be seen yet.");
+                sb.Append($" Ore: {string.Join(", ", ores)}.");
+            }
+            if (food.Count > 0)
+            {
+                sb.Append($" Food: {string.Join(", ", food)}.");
+            }
+            if (wildLand && (Plugin.SpotOres.Value || Plugin.SpotFood.Value))
+            {
+                sb.Append(" Some land was wild and unvisited, so its ore and plants can't be seen yet.");
             }
             return sb.ToString();
         }
+
+        /// <summary>"Troll Cave, 3 x Burial Chambers": one entry per label.</summary>
+        private static List<string> Summary(IEnumerable<Finding> findings) =>
+            findings.GroupBy(f => f.Label).Select(g => g.Count() == 1 ? g.Key : $"{g.Count()} x {g.Key}").ToList();
 
         /// <summary>Biomes under the route, in the order the raven met them.</summary>
         private static List<string> BiomesAlong(Vector3 from, Vector3 to)
@@ -504,6 +590,8 @@ namespace RavenScout
             var pkg = new ZPackage();
             pkg.Write(ResultVersion);
             pkg.Write(r.Key ?? "");
+            pkg.Write(r.SentAt);
+            pkg.Write(r.ReturnAt);
             pkg.Write(r.From);
             pkg.Write(r.Target);
             pkg.Write(r.RevealRadius);
@@ -529,6 +617,8 @@ namespace RavenScout
             var r = new TripResult
             {
                 Key = pkg.ReadString(),
+                SentAt = pkg.ReadDouble(),
+                ReturnAt = pkg.ReadDouble(),
                 From = pkg.ReadVector3(),
                 Target = pkg.ReadVector3(),
                 RevealRadius = pkg.ReadSingle(),

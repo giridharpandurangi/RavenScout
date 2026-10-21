@@ -34,18 +34,24 @@ namespace RavenScout
                 return;
             }
 
-            Reveal(map, result.From, result.Target, result.RevealRadius);
-            int added = 0;
-            foreach (var f in result.Findings)
+            if (Game.m_noMap)
             {
-                if (AddPin(map, f))
-                {
-                    added++;
-                }
+                // No map in this world (or the player turned theirs off): the report at the roost is the news.
+                player.Message(MessageHud.MessageType.Center, "Your scouting raven is back - read its report at the roost");
+                Plugin.Log.LogInfo($"Trip result (no map): {result.Report}");
+                return;
             }
 
-            string pins = added == 0 ? "no new pins" : added == 1 ? "1 new pin" : $"{added} new pins";
-            player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back ({pins} on your map)");
+            // With live tracking most of this is already done; both are safe to repeat.
+            Reveal(map, result.From, result.Target, result.RevealRadius);
+            foreach (var f in result.Findings)
+            {
+                AddPin(map, f);
+            }
+
+            int count = result.Findings.Count;
+            string spotted = count == 0 ? "nothing special spotted" : count == 1 ? "1 thing spotted" : $"{count} things spotted";
+            player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
             player.Message(MessageHud.MessageType.Center, "Your scouting raven is back - check your map");
             Plugin.Log.LogInfo($"Trip result applied: {result.Report}");
         }
@@ -68,7 +74,8 @@ namespace RavenScout
             return true;
         }
 
-        private static void Reveal(Minimap map, Vector3 from, Vector3 to, float radius)
+        /// <summary>Reveals a strip of map from <paramref name="from"/> to <paramref name="to"/>.</summary>
+        public static void Reveal(Minimap map, Vector3 from, Vector3 to, float radius)
         {
             if (s_explore == null)
             {
@@ -84,7 +91,8 @@ namespace RavenScout
             }
         }
 
-        private static bool AddPin(Minimap map, Finding f)
+        /// <summary>Adds a saved pin for a finding, unless the map already has one like it nearby.</summary>
+        public static bool AddPin(Minimap map, Finding f)
         {
             string name = f.Label ?? "";
             var pins = s_pins?.GetValue(map) as List<Minimap.PinData>;
@@ -104,7 +112,8 @@ namespace RavenScout
                 case Finding.Kind.Dungeon: return Minimap.PinType.Icon4;
                 case Finding.Kind.Trader: return Minimap.PinType.Icon1;
                 case Finding.Kind.Ore: return Minimap.PinType.Icon2;
-                default: return Minimap.PinType.Icon3;
+                case Finding.Kind.Food: return Minimap.PinType.Icon3;
+                default: return Minimap.PinType.Icon0;
             }
         }
     }
