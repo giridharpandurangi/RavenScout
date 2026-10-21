@@ -17,7 +17,7 @@ namespace RavenScout
     {
         public const string ModGuid = "com.ravenscout.valheim";
         public const string ModName = "Raven Scout";
-        public const string ModVersion = "0.1.4";
+        public const string ModVersion = "0.2.0";
 
         public const string RoostPrefabName = "piece_ravenroost";
 
@@ -62,6 +62,15 @@ namespace RavenScout
         internal static ConfigEntry<PinGrouping> FoodPinGrouping;
         internal static ConfigEntry<PinGrouping> OrePinGrouping;
 
+        // Map or report
+        internal enum NoMapBehaviour { Auto, MapOnly, ReportOnly, Both }
+
+        internal enum Precision { Vague, Rough, Exact }
+
+        internal static ConfigEntry<NoMapBehaviour> NoMapMode;
+        internal static ConfigEntry<Precision> ReportPrecision;
+        internal static ConfigEntry<KeyCode> RenameKey;
+
         internal static ConfigEntry<bool> UseFood;
         internal static ConfigEntry<HungryBehaviour> Hungry;
         internal static ConfigEntry<float> HungrySpeed;
@@ -90,6 +99,15 @@ namespace RavenScout
                 Synced("Shortest possible trip, in seconds."));
             MaxTripsPerDay = Config.Bind("Trip", "MaxTripsPerDay", 0,
                 Synced("How many trips each roost can start per in-game day. 0 = unlimited (a roost always has only one raven out)."));
+
+            NoMapMode = Config.Bind("Report", "NoMapMode", NoMapBehaviour.Auto,
+                Synced("What the raven brings back. Auto: map reveal and pins, or a Scout Report item in no-map worlds (and for players " +
+                       "who turned their own map off). MapOnly, ReportOnly, Both: as named. A no-map world never gets map changes: " +
+                       "there MapOnly gives a report instead."));
+            ReportPrecision = Config.Bind("Report", "ReportPrecision", Precision.Vague,
+                Synced("How exact Scout Reports are. Vague: \"about 300 m\", \"far, over 2 km\", north-east. " +
+                       "Rough: to the nearest 100 m. Exact: metres and compass degrees."));
+            RenameKey = Config.Bind("Keys", "Rename", KeyCode.N, "While looking at a roost: give it a name (shown on its reports).");
 
             RevealRadius = Config.Bind("Spotting", "RevealRadius", 120f,
                 Synced("Half the width of the strip of map the raven reveals along its route, in metres."));
@@ -200,11 +218,11 @@ namespace RavenScout
             var piece = new CustomPiece(RoostPrefabName, "piece_chest_wood", config);
             var prefab = piece.PiecePrefab;
 
-            // A small box for things the raven brings back (later versions).
+            // A small box for what the raven brings back: Scout Reports (and small finds later).
             var container = prefab.GetComponent<Container>();
             container.m_name = "Raven Roost";
-            container.m_width = 2;
-            container.m_height = 1;
+            container.m_width = 4;
+            container.m_height = 2;
 
             prefab.AddComponent<RavenRoost>();
 
@@ -219,6 +237,7 @@ namespace RavenScout
             }
 
             PieceManager.Instance.AddPiece(piece);
+            ScoutReportItem.Register();
         }
 
         private void Update()
@@ -231,6 +250,23 @@ namespace RavenScout
             }
             ScoutNet.ServerTick();
             ScoutLive.Tick();
+            HandleKeys();
+        }
+
+        private static void HandleKeys()
+        {
+            var player = Player.m_localPlayer;
+            if (!player || InventoryGui.IsVisible() || Menu.IsVisible() || TextInput.IsVisible() ||
+                global::Console.IsVisible() || (Chat.instance && Chat.instance.HasFocus()))
+            {
+                return;
+            }
+            var hover = player.GetHoverObject();
+            var roost = hover ? hover.GetComponentInParent<RavenRoost>() : null;
+            if (roost && ZInput.GetKeyDown(RenameKey.Value, false))
+            {
+                TextInput.instance.RequestText(roost, "Name this roost", 24);
+            }
         }
 
         private void OnDestroy()

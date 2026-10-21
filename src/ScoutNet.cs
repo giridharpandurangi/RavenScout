@@ -52,8 +52,8 @@ namespace RavenScout
             rpc.Register<ZDOID>(RpcTripStarted, OnTripStarted);
             rpc.Register<ZPackage>(RpcResult, OnResult);
             rpc.Register<ZPackage>(RpcPlan, OnPlan);
-            rpc.Register<ZDOID, string, string>(RpcMarkReported, OnMarkReported);
-            rpc.Register<ZDOID, string, string>(RpcServerMark, OnServerMark);
+            rpc.Register<ZDOID, ZPackage>(RpcMarkReported, OnMarkReported);
+            rpc.Register<ZDOID, ZPackage>(RpcServerMark, OnServerMark);
             rpc.Register<Vector3, Vector3, ZPackage>(RpcTakeOff, OnTakeOff);
         }
 
@@ -114,7 +114,7 @@ namespace RavenScout
                 string key = trip.Key(id);
                 if (trip.IsAway(now))
                 {
-                    if (Plugin.LiveTracking.Value)
+                    if (Plugin.LiveTracking.Value && MapAllowed(trip))
                     {
                         SendPlanIfNeeded(trip, key);
                     }
@@ -136,10 +136,38 @@ namespace RavenScout
                 {
                     continue;
                 }
-                Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings)");
+                result.ApplyMap = MapAllowed(trip);
+                result.GaveReport = WantsReport(trip);
+                result.RoostName = Scouting.RoostName(zdo);
+                Plugin.Log.LogInfo($"Raven back for {trip.Sender}: {result.Report} ({result.Findings.Count} findings, " +
+                                   $"map {(result.ApplyMap ? "yes" : "no")}, report item {(result.GaveReport ? "yes" : "no")})");
                 Send(trip.Sender, RpcResult, result);
-                MarkReported(zdo, key, result.Report);
+                MarkReported(zdo, key, result.Report, result.GaveReport ? result.ReportText : "");
             }
+        }
+
+        // ------------------------------------------------------------ map or report
+
+        /// <summary>
+        /// May this trip change the sender's map? Never in a no-map world, whatever the config says (the server
+        /// chose to play without a map). In Auto, not for a player who had their own map turned off either.
+        /// </summary>
+        private static bool MapAllowed(ScoutTrip trip)
+        {
+            var mode = Plugin.NoMapMode.Value;
+            if (Scouting.WorldHasNoMap || mode == Plugin.NoMapBehaviour.ReportOnly)
+            {
+                return false;
+            }
+            return !(mode == Plugin.NoMapBehaviour.Auto && trip.SenderNoMap);
+        }
+
+        /// <summary>Does this trip bring a Scout Report item? Always when the map can't show what the raven saw.</summary>
+        private static bool WantsReport(ScoutTrip trip)
+        {
+            var mode = Plugin.NoMapMode.Value;
+            return Scouting.WorldHasNoMap || mode == Plugin.NoMapBehaviour.ReportOnly || mode == Plugin.NoMapBehaviour.Both ||
+                   (mode == Plugin.NoMapBehaviour.Auto && trip.SenderNoMap);
         }
 
         /// <summary>
@@ -241,31 +269,37 @@ namespace RavenScout
         /// <summary>
         /// Only the owner of an object should change it, or one of the two changes can be lost. If a player
         /// owns the roost (they're near it), they save the report; otherwise the server does.
+        /// <paramref name="reportText"/> is the Scout Report item's text, or empty for none.
         /// </summary>
-        private static void MarkReported(ZDO zdo, string key, string report)
+        private static void MarkReported(ZDO zdo, string key, string report, string reportText)
         {
+            var pkg = new ZPackage();
+            pkg.Write(key);
+            pkg.Write(report ?? "");
+            pkg.Write(reportText ?? "");
             long owner = zdo.GetOwner();
             if (owner != 0 && owner != ZDOMan.GetSessionID() && ZNet.instance.GetPeer(owner) != null)
             {
-                ZRoutedRpc.instance.InvokeRoutedRPC(owner, RpcMarkReported, zdo.m_uid, key, report);
+                ZRoutedRpc.instance.InvokeRoutedRPC(owner, RpcMarkReported, zdo.m_uid, pkg);
                 return;
             }
-            SaveReport(zdo, key, report);
+            SaveReport(zdo, pkg);
         }
 
-        private static void OnMarkReported(long sender, ZDOID id, string key, string report)
+        private static void OnMarkReported(long sender, ZDOID id, ZPackage pkg)
         {
             var zdo = ZDOMan.instance.GetZDO(id);
             if (zdo != null && zdo.IsOwner())
             {
-                SaveReport(zdo, key, report);
+                SaveReport(zdo, pkg);
                 return;
             }
             // Ownership moved on in the meantime: let the server save it.
-            ZRoutedRpc.instance.InvokeRoutedRPC(RpcServerMark, id, key, report);
+            pkg.SetPos(0);
+            ZRoutedRpc.instance.InvokeRoutedRPC(RpcServerMark, id, pkg);
         }
 
-        private static void OnServerMark(long sender, ZDOID id, string key, string report)
+        private static void OnServerMark(long sender, ZDOID id, ZPackage pkg)
         {
             if (!Scouting.IsServer)
             {
@@ -274,20 +308,32 @@ namespace RavenScout
             var zdo = ZDOMan.instance.GetZDO(id);
             if (zdo != null && zdo.IsValid())
             {
-                SaveReport(zdo, key, report);
+                SaveReport(zdo, pkg);
             }
         }
 
-        private static void SaveReport(ZDO zdo, string key, string report)
+        private static void SaveReport(ZDO zdo, ZPackage pkg)
         {
+            pkg.SetPos(0);
+            string key = pkg.ReadString();
+            string report = pkg.ReadString();
+            string reportText = pkg.ReadString();
+
             var trip = Scouting.ReadTrip(zdo);
-            if (trip == null || trip.Key(zdo.m_uid) != key)
+            if (trip == null || trip.Key(zdo.m_uid) != key || trip.Reported)
             {
-                return; // a newer trip has started since
+                return; // a newer trip has started since, or this one is already saved
             }
             trip.Reported = true;
             Scouting.WriteTrip(zdo, trip);
             zdo.Set(Scouting.ReportKey, report ?? "");
+            if (!string.IsNullOrEmpty(reportText))
+            {
+                // The roost's owner turns it into an item in the roost's box (see RavenRoost.DeliverReports).
+                var pending = Scouting.ReadPending(zdo);
+                pending.Add(new PendingReport { Text = reportText, Roost = Scouting.RoostName(zdo), Day = Scouting.Day(trip.ReturnAt) });
+                Scouting.WritePending(zdo, pending);
+            }
         }
 
         // ------------------------------------------------------------ visuals

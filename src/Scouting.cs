@@ -16,6 +16,7 @@ namespace RavenScout
         public string Sender = "";
         public float Meal = 1f;
         public bool Reported; // the server has handed the findings to the sender
+        public bool SenderNoMap; // v2: the sender had no map (world setting or their own choice) when sending
 
         public bool IsAway(double now) => now < ReturnAt;
 
@@ -49,7 +50,21 @@ namespace RavenScout
         public Vector3 Target;
         public float RevealRadius;
         public string Report;
+        public bool ApplyMap = true;   // v3: reveal and pin on the sender's map
+        public bool GaveReport;        // v3: a Scout Report item waits at the roost
+        public string RoostName = "";  // v3
         public List<Finding> Findings = new List<Finding>();
+
+        /// <summary>The Scout Report text (server only, not sent).</summary>
+        public string ReportText;
+    }
+
+    /// <summary>A Scout Report the server has written for a roost, waiting for room in the roost's box.</summary>
+    internal class PendingReport
+    {
+        public string Text;
+        public string Roost;
+        public int Day;
     }
 
     /// <summary>Trip storage, distances and times, and (on the server) working out what a raven saw.</summary>
@@ -57,8 +72,11 @@ namespace RavenScout
     {
         public const string TripKey = "ravenscout_trip";
         public const string ReportKey = "ravenscout_report";
-        private const int TripVersion = 1;
-        private const int ResultVersion = 2;
+        public const string NameKey = "ravenscout_name";
+        public const string PendingKey = "ravenscout_pending";
+        public const string DefaultRoostName = "Raven Roost";
+        private const int TripVersion = 2;
+        private const int ResultVersion = 3;
 
         /// <summary>Ravens turn back at the edge of the world.</summary>
         private const float WorldRadius = 10000f;
@@ -82,12 +100,12 @@ namespace RavenScout
             }
             var pkg = new ZPackage(data);
             int version = pkg.ReadInt();
-            if (version != TripVersion)
+            if (version < 1 || version > TripVersion)
             {
                 Plugin.Log.LogWarning($"Unknown trip version {version}; ignoring.");
                 return null;
             }
-            return new ScoutTrip
+            var trip = new ScoutTrip
             {
                 SentAt = pkg.ReadDouble(),
                 ReturnAt = pkg.ReadDouble(),
@@ -97,6 +115,11 @@ namespace RavenScout
                 Meal = pkg.ReadSingle(),
                 Reported = pkg.ReadBool(),
             };
+            if (version >= 2)
+            {
+                trip.SenderNoMap = pkg.ReadBool();
+            }
+            return trip;
         }
 
         public static void WriteTrip(ZDO zdo, ScoutTrip trip)
@@ -110,8 +133,50 @@ namespace RavenScout
             pkg.Write(trip.Sender ?? "");
             pkg.Write(trip.Meal);
             pkg.Write(trip.Reported);
+            pkg.Write(trip.SenderNoMap);
             zdo.Set(TripKey, pkg.GetArray());
         }
+
+        public static string RoostName(ZDO zdo)
+        {
+            string name = zdo?.GetString(NameKey);
+            return string.IsNullOrEmpty(name) ? DefaultRoostName : name;
+        }
+
+        // ------------------------------------------------------------ reports waiting at the roost
+
+        public static List<PendingReport> ReadPending(ZDO zdo)
+        {
+            var list = new List<PendingReport>();
+            byte[] data = zdo?.GetByteArray(PendingKey);
+            if (data == null || data.Length == 0)
+            {
+                return list;
+            }
+            var pkg = new ZPackage(data);
+            int count = pkg.ReadInt();
+            for (int i = 0; i < count; i++)
+            {
+                list.Add(new PendingReport { Text = pkg.ReadString(), Roost = pkg.ReadString(), Day = pkg.ReadInt() });
+            }
+            return list;
+        }
+
+        public static void WritePending(ZDO zdo, List<PendingReport> list)
+        {
+            var pkg = new ZPackage();
+            pkg.Write(list.Count);
+            foreach (var r in list)
+            {
+                pkg.Write(r.Text ?? "");
+                pkg.Write(r.Roost ?? "");
+                pkg.Write(r.Day);
+            }
+            zdo.Set(PendingKey, pkg.GetArray());
+        }
+
+        /// <summary>Is this world played without a map? (The world setting; a player can also turn theirs off, see Game.m_noMap.)</summary>
+        public static bool WorldHasNoMap => ZoneSystem.instance && ZoneSystem.instance.GetGlobalKey(GlobalKeys.NoMap);
 
         /// <summary>Every roost in the world. Server only: clients only know the area around them.</summary>
         public static List<ZDO> GetAllRoostZdos()
@@ -212,6 +277,7 @@ namespace RavenScout
             FindPlaces(trip, radius, result.Findings);
             bool wildLand = FindObjects(trip, radius, result.Findings);
             result.Report = Report(trip, result.Findings, wildLand);
+            result.ReportText = ScoutWords.Write(trip, result.Findings, wildLand);
             return result;
         }
 
@@ -656,6 +722,9 @@ namespace RavenScout
             pkg.Write(r.Target);
             pkg.Write(r.RevealRadius);
             pkg.Write(r.Report ?? "");
+            pkg.Write(r.ApplyMap);
+            pkg.Write(r.GaveReport);
+            pkg.Write(r.RoostName ?? "");
             pkg.Write(r.Findings.Count);
             foreach (var f in r.Findings)
             {
@@ -683,6 +752,9 @@ namespace RavenScout
                 Target = pkg.ReadVector3(),
                 RevealRadius = pkg.ReadSingle(),
                 Report = pkg.ReadString(),
+                ApplyMap = pkg.ReadBool(),
+                GaveReport = pkg.ReadBool(),
+                RoostName = pkg.ReadString(),
             };
             int count = pkg.ReadInt();
             for (int i = 0; i < count; i++)

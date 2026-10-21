@@ -34,10 +34,18 @@ namespace RavenScout
                 return;
             }
 
-            if (Game.m_noMap)
+            string roost = string.IsNullOrEmpty(result.RoostName) ? "the roost" : result.RoostName;
+            int count = result.Findings.Count;
+            string spotted = count == 0 ? "nothing special spotted" : count == 1 ? "1 thing spotted" : $"{count} things spotted";
+
+            // The server says no map for this trip (no-map world or setting); this player may also have turned
+            // their own map off. Either way the map stays untouched.
+            if (!result.ApplyMap || Game.m_noMap)
             {
-                // No map in this world (or the player turned theirs off): the report at the roost is the news.
-                player.Message(MessageHud.MessageType.Center, "Your scouting raven is back - read its report at the roost");
+                player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
+                player.Message(MessageHud.MessageType.Center, result.GaveReport
+                    ? $"Your scouting raven brought a Scout Report to {roost}"
+                    : $"Your scouting raven is back - read its report at {roost}");
                 Plugin.Log.LogInfo($"Trip result (no map): {result.Report}");
                 return;
             }
@@ -49,10 +57,10 @@ namespace RavenScout
                 AddPin(map, f);
             }
 
-            int count = result.Findings.Count;
-            string spotted = count == 0 ? "nothing special spotted" : count == 1 ? "1 thing spotted" : $"{count} things spotted";
             player.Message(MessageHud.MessageType.TopLeft, $"Your scouting raven is back: {spotted}");
-            player.Message(MessageHud.MessageType.Center, "Your scouting raven is back - check your map");
+            player.Message(MessageHud.MessageType.Center, result.GaveReport
+                ? $"Your scouting raven is back - check your map and the Scout Report at {roost}"
+                : "Your scouting raven is back - check your map");
             Plugin.Log.LogInfo($"Trip result applied: {result.Report}");
         }
 

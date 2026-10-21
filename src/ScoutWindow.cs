@@ -19,6 +19,7 @@ namespace RavenScout
         private static readonly FieldInfo s_currentContainer = AccessTools.Field(typeof(InventoryGui), "m_currentContainer");
 
         private static GameObject s_panel;
+        private static Text s_title;
         private static Text s_status;
         private static Text s_direction;
         private static Text s_distance;
@@ -97,7 +98,7 @@ namespace RavenScout
             rect.anchoredPosition = new Vector2(12f, 0f);
 
             var t = s_panel.transform;
-            AddText(t, "Raven Roost", -30f, 22, Gold, 36f);
+            s_title = AddText(t, "Raven Roost", -30f, 22, Gold, 36f);
             s_status = AddText(t, "", -64f, 15, Plain, 40f);
             s_status.horizontalOverflow = HorizontalWrapMode.Wrap;
 
@@ -176,6 +177,7 @@ namespace RavenScout
                 return;
             }
 
+            s_title.text = s_roost.RoostName;
             var trip = s_roost.Trip;
             double now = Scouting.Now;
             bool away = trip != null && trip.IsAway(now);
@@ -209,6 +211,11 @@ namespace RavenScout
             {
                 info += $"\n{s_roost.TripsStatus}";
             }
+            string brings = Brings();
+            if (brings.Length > 0)
+            {
+                info += $"\n<color=#a8a49a>{brings}</color>";
+            }
             s_info.text = info;
 
             s_feed.gameObject.SetActive(Plugin.UseFood.Value);
@@ -217,6 +224,24 @@ namespace RavenScout
 
             string report = s_roost.LastReport;
             s_report.text = string.IsNullOrEmpty(report) ? "<color=#a8a49a>No trips yet.</color>" : report;
+        }
+
+        /// <summary>What the raven will bring back, when that isn't simply map pins.</summary>
+        private static string Brings()
+        {
+            if (Scouting.WorldHasNoMap)
+            {
+                return "No-map world: it brings a Scout Report";
+            }
+            switch (Plugin.NoMapMode.Value)
+            {
+                case Plugin.NoMapBehaviour.ReportOnly:
+                    return "It brings a Scout Report (no map changes)";
+                case Plugin.NoMapBehaviour.Both:
+                    return "Map pins and a Scout Report";
+                default:
+                    return Game.m_noMap && Plugin.NoMapMode.Value == Plugin.NoMapBehaviour.Auto ? "Your map is off: it brings a Scout Report" : "";
+            }
         }
 
         private static void Turn(float degrees)

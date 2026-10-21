@@ -4,8 +4,11 @@ using UnityEngine;
 
 namespace RavenScout
 {
-    /// <summary>Added to the roost prefab next to its Container. Feeds and sends the scouting raven.</summary>
-    public class RavenRoost : MonoBehaviour
+    /// <summary>
+    /// Added to the roost prefab next to its Container. Feeds and sends the scouting raven, and puts the
+    /// Scout Reports it brings back into the box.
+    /// </summary>
+    public class RavenRoost : MonoBehaviour, TextReceiver
     {
         private const string TripsLogKey = "ravenscout_trips"; // "<day>:<trips started>"
         private const float LandingViewDistance = 80f;
@@ -27,6 +30,7 @@ namespace RavenScout
                 return; // placement ghost
             }
             InvokeRepeating(nameof(UpdateSeat), 0.5f, 0.5f);
+            InvokeRepeating(nameof(DeliverReports), 1f, 2f);
         }
 
         private ZDO Zdo => _nview && _nview.IsValid() ? _nview.GetZDO() : null;
@@ -43,6 +47,53 @@ namespace RavenScout
         }
 
         public string LastReport => Zdo?.GetString(Scouting.ReportKey) ?? "";
+
+        public string RoostName => Zdo != null ? Scouting.RoostName(Zdo) : Scouting.DefaultRoostName;
+
+        // TextReceiver (rename dialog)
+        public string GetText() => Zdo?.GetString(Scouting.NameKey) ?? "";
+
+        public void SetText(string text)
+        {
+            if (Zdo == null || !EnsureOwner(Player.m_localPlayer))
+            {
+                return;
+            }
+            Zdo.Set(Scouting.NameKey, (text ?? "").Trim());
+        }
+
+        // ------------------------------------------------------------ Scout Reports
+
+        /// <summary>Reports the server has written for this roost that don't fit in the box yet.</summary>
+        public int PendingReports => Zdo != null ? Scouting.ReadPending(Zdo).Count : 0;
+
+        /// <summary>Turns waiting reports into Scout Report items in the box. Only the roost's owner does this.</summary>
+        private void DeliverReports()
+        {
+            if (Zdo == null || !_nview.IsOwner() || !Scouting.IsActive || _container.GetInventory() == null)
+            {
+                return;
+            }
+            var pending = Scouting.ReadPending(Zdo);
+            if (pending.Count == 0)
+            {
+                return;
+            }
+            var inventory = _container.GetInventory();
+            var left = new List<PendingReport>();
+            foreach (var report in pending)
+            {
+                var item = ScoutReportItem.Create(report.Text, report.Roost, report.Day);
+                if (item == null || !inventory.CanAddItem(item) || !inventory.AddItem(item))
+                {
+                    left.Add(report); // box full: wait for room
+                }
+            }
+            if (left.Count != pending.Count)
+            {
+                Scouting.WritePending(Zdo, left);
+            }
+        }
 
         // ------------------------------------------------------------ choosing where to scout
 
@@ -256,6 +307,7 @@ namespace RavenScout
                 Target = target,
                 Sender = player.GetPlayerName(),
                 Meal = meal,
+                SenderNoMap = Game.m_noMap,
             };
             Scouting.WriteTrip(Zdo, trip);
             ScoutNet.TripStarted(Zdo.m_uid);
@@ -334,12 +386,13 @@ namespace RavenScout
                 return "";
             }
             var sb = new StringBuilder();
+            sb.Append($"\n<color=orange>{RoostName}</color>  [<color=yellow><b>{Plugin.RenameKey.Value}</b></color>] Rename");
             var trip = Trip;
             double now = Scouting.Now;
             if (trip != null && trip.IsAway(now))
             {
                 string dir = Scouting.CompassName(Scouting.Heading(trip.From, trip.Target));
-                sb.Append($"\n<color=orange>Raven out scouting {Scouting.FormatDistance(trip.Distance)} {dir}</color> - back in {Scouting.FormatDuration(trip.ReturnAt - now)}");
+                sb.Append($"\nRaven out scouting {Scouting.FormatDistance(trip.Distance)} {dir} - back in {Scouting.FormatDuration(trip.ReturnAt - now)}");
             }
             else if (trip != null && !trip.Reported)
             {
@@ -347,7 +400,7 @@ namespace RavenScout
             }
             else
             {
-                sb.Append($"\n<color=orange>Raven ready</color>  <color=grey>range {Scouting.FormatDistance(MaxRange)}</color>");
+                sb.Append($"\nRaven ready  <color=grey>range {Scouting.FormatDistance(MaxRange)}</color>");
             }
             if (Plugin.UseFood.Value)
             {
@@ -357,6 +410,11 @@ namespace RavenScout
             if (TripsLimited)
             {
                 sb.Append($"\n{TripsStatus}");
+            }
+            int waiting = PendingReports;
+            if (waiting > 0)
+            {
+                sb.Append($"\n<color=yellow>{waiting} Scout Report{(waiting == 1 ? "" : "s")} waiting - make room in the box</color>");
             }
             return sb.ToString();
         }

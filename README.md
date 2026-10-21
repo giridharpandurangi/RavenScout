@@ -1,4 +1,4 @@
-# Raven Scout (v0.1.4)
+# Raven Scout (v0.2.0)
 
 A Valheim mod: build a **Raven Roost** at your base and send its raven on long scouting trips to far-away
 land. It flies out over real time, comes back, reveals a strip of map along its route and pins what it saw.
@@ -52,7 +52,16 @@ Paths are at the top of `RavenScout.csproj` (`ValheimDir`, `ProfileDir`, `Server
 - **Food**: each plant in `FoodNames` can need a patch (e.g. `RaspberryBush=Raspberries:3` = at least 3
   bushes within 60 m), so single bushes don't fill the map, and within `FoodPinSpacing` (300 m) patches of the same food share one pin with the total count (`Raspberries x8`). **Clear food pins** in the roost window removes them from your map. Picked plants and plants next to anything
   player-built (farms) are skipped. Food pins are **off by default** (`SpotFood = true` to turn them on): plants only exist in land that's been loaded, so it's a rough guide. `FoodPinGrouping` / `OrePinGrouping`: **Area** (one pin per area, default), **Patch** (one per patch) or **Each** (every plant or rock).
-- **No-map worlds**: the map is never revealed or pinned; the report at the roost is the news (more in v0.2).
+- **No-map worlds** (the No Map world modifier): the map is never revealed or pinned, whatever the config.
+  Instead the raven brings a **Scout Report** into the roost's box: a parchment item (read it in the
+  tooltip) written from the roost's point of view, for example *"Troll Cave on a hill in the Black Forest,
+  about 600 m north-east."* plus where new biomes begin. Reports don't stack, so they work as a journal;
+  store them or give them to friends. If the box is full they wait until there's room.
+  - `NoMapMode`: **Auto** (map in map worlds, report in no-map worlds or for players who turned their own map
+    off), **MapOnly**, **ReportOnly**, **Both**. A no-map world always gets a report instead of map changes.
+  - `ReportPrecision`: **Vague** ("about 300 m", "far to the east, over 2 km"), **Rough** (nearest 100 m) or
+    **Exact** (metres and degrees).
+- **Names**: look at a roost and press **N** to name it; reports say "Scout report from Home, Day 23".
 - **Ore**: Valheim only creates ore rocks (and wild plants) when someone has been near that land. In wild land nobody has
   visited yet the raven can't see ore (the report says so). Dungeons, bosses and traders are seen anywhere.
 - **Multiplayer**: the server tracks trips and works out what the raven saw. The findings go to the player
@@ -69,6 +78,8 @@ All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settin
 - `src/ScoutNet.cs`: multiplayer: server watches trips, sends live plans and results, saves reports
 - `src/ScoutLive.cs`: live tracking: raven marker, reveal and pins while it flies
 - `src/ScoutWindow.cs`: the roost window
+- `src/ScoutReportItem.cs`: the Scout Report item: icon, text, tooltip
+- `src/ScoutWords.cs`: writing a report from the roost's point of view
 - `src/RavenFlight.cs`, `src/RoostModel.cs`, `src/RavenFood.cs`: raven visuals, roost look and food (from Raven Post)
 - `src/Patches.cs`: Harmony patches for hover text, feeding and removal
 
@@ -77,8 +88,8 @@ All settings are in `BepInEx/config/com.ravenscout.valheim.cfg` (gameplay settin
 | Version | Feature |
 |---|---|
 | v0.1 | Roost, one scouting trip, map reveal, pins, report; live tracking and food pins (0.1.2) |
-| v0.2 | No-map worlds: Scout Report item written from the roost's point of view |
-| v0.3 | Report precision options, copy reports for friends, feather guide |
+| v0.2 | No-map worlds: Scout Report item from the roost's point of view, precision options, roost names |
+| v0.3 | Copy reports for friends, feather guide |
 | Later | Click a spot on the map as the target; report history |
 | Later | Roost tiers through the biomes: longer range, faster trips, more things spotted |
 | Later | Small finds: a feather, a seed, a bit of ore |

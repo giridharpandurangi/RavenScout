@@ -38,6 +38,20 @@ namespace RavenScout
         }
     }
 
+    /// <summary>Shows a Scout Report's text in its tooltip.</summary>
+    [HarmonyPatch(typeof(ItemDrop.ItemData), nameof(ItemDrop.ItemData.GetTooltip),
+        new[] { typeof(ItemDrop.ItemData), typeof(int), typeof(bool), typeof(float), typeof(int), typeof(bool) })]
+    internal static class ReportTooltipPatch
+    {
+        private static void Postfix(ItemDrop.ItemData item, ref string __result)
+        {
+            if (ScoutReportItem.IsReport(item))
+            {
+                __result += ScoutReportItem.Tooltip(item);
+            }
+        }
+    }
+
     /// <summary>Don't let the player deconstruct a roost while its raven is out.</summary>
     [HarmonyPatch(typeof(Container), nameof(Container.CanBeRemoved))]
     internal static class ContainerCanBeRemovedPatch
